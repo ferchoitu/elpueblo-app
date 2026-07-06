@@ -1,0 +1,60 @@
+appId: com.delpueblo.caja
+productName: DEL PUEBLO Caja
+copyright: Copyright © 2026 DEL PUEBLO
+
+# Publicación de actualizaciones en GitHub Releases (auto-update).
+publish:
+  provider: github
+  owner: ferchoitu
+  repo: elpueblo-app
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+# Recompila los módulos nativos (better-sqlite3, serialport) contra la
+# versión de Node de Electron durante el empaquetado.
+nodeGypRebuild: false
+npmRebuild: true
+
+# Módulos nativos van sin empaquetar en asar para que su .node cargue bien.
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+  - "**/node_modules/serialport/**"
+  - "**/node_modules/@serialport/**"
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: "DEL-PUEBLO-Caja-Setup-${version}.${ext}"
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: DEL PUEBLO Caja
+
+# Para desarrollo/pruebas en Mac también se puede generar un dmg.
+mac:
+  target:
+    - dmg
+  category: public.app-category.business
+
+# Linux: AppImage (portable, corre en casi cualquier distro) + .deb.
+linux:
+  target:
+    - AppImage
+    - deb
+  category: Office
+  artifactName: "DEL-PUEBLO-Caja-${version}.${ext}"
+  # El acceso a la balanza (/dev/ttyUSB*) y a la impresora requiere que el
+  # usuario esté en los grupos 'dialout' y 'lp' (ver README).

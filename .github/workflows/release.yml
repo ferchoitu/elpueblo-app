@@ -1,0 +1,41 @@
+name: Release
+
+# Compila el instalador de Windows y publica la Release cuando se sube una
+# etiqueta de versión (ej: v1.1.0). Las cajas instaladas se auto-actualizan.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # necesario para publicar la Release
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # node-gyp (recompila better-sqlite3 / serialport) necesita Python con
+      # distutils: 3.11 lo trae; 3.12+ no.
+      - name: Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias (recompila módulos nativos)
+        run: npm ci
+
+      - name: Build (renderer + main + preload)
+        run: npm run build
+
+      - name: Empaquetar y publicar en GitHub Releases
+        run: npx electron-builder --win --x64 --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

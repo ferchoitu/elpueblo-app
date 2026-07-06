@@ -1,0 +1,303 @@
+import { useState, useEffect, useCallback, useRef } from 'react';
+import type {
+  AppConfig,
+  ConfigNegocio,
+  ConfigImpresora,
+  ConfigBalanza,
+  TramaDiagnostico,
+  ProtocoloBalanza,
+} from '@shared/types';
+import { EmpleadasSection, PasswordSection } from '../components/config/UsuariosConfig';
+
+export default function ConfigPage() {
+  const [cfg, setCfg] = useState<AppConfig | null>(null);
+  const [puertos, setPuertos] = useState<{ path: string; manufacturer?: string }[]>([]);
+  const [guardado, setGuardado] = useState('');
+
+  const [diagActivo, setDiagActivo] = useState(false);
+  const [tramas, setTramas] = useState<TramaDiagnostico[]>([]);
+  const unsubRef = useRef<null | (() => void)>(null);
+
+  const cargar = useCallback(async () => {
+    const [c, p] = await Promise.all([
+      window.api.config.obtener(),
+      window.api.balanza.listarPuertos(),
+    ]);
+    setCfg(c);
+    setPuertos(p);
+  }, []);
+
+  useEffect(() => {
+    cargar();
+    return () => {
+      unsubRef.current?.();
+      window.api.balanza.detenerDiagnostico();
+    };
+  }, [cargar]);
+
+  function flash(msg: string) {
+    setGuardado(msg);
+    setTimeout(() => setGuardado(''), 2500);
+  }
+
+  async function guardarNegocio(v: ConfigNegocio) {
+    await window.api.config.guardarNegocio(v);
+    flash('Datos del negocio guardados');
+  }
+  async function guardarImpresora(v: ConfigImpresora) {
+    await window.api.config.guardarImpresora(v);
+    flash('Impresora guardada');
+  }
+  async function guardarBalanza(v: ConfigBalanza) {
+    await window.api.config.guardarBalanza(v);
+    flash('Balanza guardada');
+  }
+
+  async function toggleDiagnostico() {
+    if (diagActivo) {
+      unsubRef.current?.();
+      unsubRef.current = null;
+      await window.api.balanza.detenerDiagnostico();
+      setDiagActivo(false);
+      return;
+    }
+    // Guardamos la config de balanza actual antes de diagnosticar.
+    if (cfg) await window.api.config.guardarBalanza(cfg.balanza);
+    setTramas([]);
+    const res = await window.api.balanza.iniciarDiagnostico();
+    if (!res.ok) {
+      flash('Error al abrir el puerto: ' + res.error);
+      return;
+    }
+    unsubRef.current = window.api.balanza.onTrama((t) =>
+      setTramas((prev) => [t, ...prev].slice(0, 50))
+    );
+    setDiagActivo(true);
+  }
+
+  async function backup() {
+    const res = await window.api.config.hacerBackup();
+    if (res.ok && res.data) alert('Backup guardado en:\n' + res.data);
+    else if (!res.ok) alert(res.error);
+  }
+
+  if (!cfg) return <div className="p-6 text-slate-400">Cargando…</div>;
+
+  const setNeg = (patch: Partial<ConfigNegocio>) =>
+    setCfg({ ...cfg, negocio: { ...cfg.negocio, ...patch } });
+  const setImp = (patch: Partial<ConfigImpresora>) =>
+    setCfg({ ...cfg, impresora: { ...cfg.impresora, ...patch } });
+  const setBal = (patch: Partial<ConfigBalanza>) =>
+    setCfg({ ...cfg, balanza: { ...cfg.balanza, ...patch } });
+
+  return (
+    <div className="h-full overflow-y-auto p-6 max-w-3xl mx-auto space-y-5">
+      <h1 className="text-2xl font-bold">Configuración</h1>
+
+      {/* Negocio */}
+      <section className="card p-5">
+        <h2 className="font-bold text-lg mb-3">🏪 Datos del negocio (para el ticket)</h2>
+        <div className="grid grid-cols-1 gap-3">
+          <Field label="Nombre">
+            <input className="input" value={cfg.negocio.nombre} onChange={(e) => setNeg({ nombre: e.target.value })} />
+          </Field>
+          <Field label="Dirección">
+            <input className="input" value={cfg.negocio.direccion} onChange={(e) => setNeg({ direccion: e.target.value })} />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="CUIT">
+              <input className="input" value={cfg.negocio.cuit} onChange={(e) => setNeg({ cuit: e.target.value })} />
+            </Field>
+            <Field label="Mensaje del pie">
+              <input className="input" value={cfg.negocio.mensajePie} onChange={(e) => setNeg({ mensajePie: e.target.value })} />
+            </Field>
+          </div>
+        </div>
+        <button onClick={() => guardarNegocio(cfg.negocio)} className="btn-primary px-4 py-2 mt-3">
+          Guardar negocio
+        </button>
+      </section>
+
+      {/* Impresora */}
+      <section className="card p-5">
+        <h2 className="font-bold text-lg mb-3">🖨️ Impresora térmica (Xprinter 58mm)</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Interfaz / nombre">
+            <input
+              className="input"
+              value={cfg.impresora.interfaz}
+              onChange={(e) => setImp({ interfaz: e.target.value })}
+              placeholder="printer:XP-58"
+            />
+          </Field>
+          <Field label="Ancho (caracteres)">
+            <input
+              type="number"
+              className="input"
+              value={cfg.impresora.ancho}
+              onChange={(e) => setImp({ ancho: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Tipo">
+            <select className="input" value={cfg.impresora.tipo} onChange={(e) => setImp({ tipo: e.target.value as 'epson' | 'star' })}>
+              <option value="epson">Epson / ESC-POS (Xprinter)</option>
+              <option value="star">Star</option>
+            </select>
+          </Field>
+          <Field label="Habilitada">
+            <label className="flex items-center gap-2 h-full">
+              <input
+                type="checkbox"
+                checked={cfg.impresora.habilitada}
+                onChange={(e) => setImp({ habilitada: e.target.checked })}
+                className="w-5 h-5"
+              />
+              <span>Imprimir tickets automáticamente</span>
+            </label>
+          </Field>
+        </div>
+        <p className="text-xs text-slate-500 mt-2">
+          En Windows suele ser <code>printer:NOMBRE</code> (el nombre exacto con que quedó instalada
+          la impresora). También admite <code>//localhost/NOMBRE</code> o una ruta USB.
+        </p>
+        <button onClick={() => guardarImpresora(cfg.impresora)} className="btn-primary px-4 py-2 mt-3">
+          Guardar impresora
+        </button>
+      </section>
+
+      {/* Balanza */}
+      <section className="card p-5">
+        <h2 className="font-bold text-lg mb-3">⚖️ Balanza Systel (RS-232 / USB)</h2>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Puerto COM">
+            <div className="flex gap-2">
+              <input
+                className="input"
+                value={cfg.balanza.puerto}
+                onChange={(e) => setBal({ puerto: e.target.value })}
+                list="puertos"
+              />
+              <datalist id="puertos">
+                {puertos.map((p) => (
+                  <option key={p.path} value={p.path}>
+                    {p.manufacturer}
+                  </option>
+                ))}
+              </datalist>
+            </div>
+          </Field>
+          <Field label="Baudios">
+            <select className="input" value={cfg.balanza.baudRate} onChange={(e) => setBal({ baudRate: Number(e.target.value) })}>
+              {[1200, 2400, 4800, 9600, 19200, 38400].map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Paridad">
+            <select className="input" value={cfg.balanza.parity} onChange={(e) => setBal({ parity: e.target.value as ConfigBalanza['parity'] })}>
+              {['none', 'even', 'odd'].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Protocolo">
+            <select
+              className="input"
+              value={cfg.balanza.protocolo}
+              onChange={(e) => setBal({ protocolo: e.target.value as ProtocoloBalanza })}
+            >
+              <option value="estable">Systel estable (0x05)</option>
+              <option value="continuo">Systel continuo (0x07)</option>
+              <option value="torrey">Torrey (P)</option>
+              <option value="cas">CAS (W)</option>
+            </select>
+          </Field>
+          <Field label="Byte de solicitud (hex)">
+            <input
+              className="input"
+              value={'0x' + cfg.balanza.byteSolicitud.toString(16).padStart(2, '0')}
+              onChange={(e) => {
+                const v = parseInt(e.target.value.replace(/^0x/i, ''), 16);
+                if (!Number.isNaN(v)) setBal({ byteSolicitud: v });
+              }}
+            />
+          </Field>
+          <Field label="Timeout (ms)">
+            <input
+              type="number"
+              className="input"
+              value={cfg.balanza.timeoutMs}
+              onChange={(e) => setBal({ timeoutMs: Number(e.target.value) })}
+            />
+          </Field>
+        </div>
+
+        <div className="flex gap-2 mt-3">
+          <button onClick={() => guardarBalanza(cfg.balanza)} className="btn-primary px-4 py-2">
+            Guardar balanza
+          </button>
+          <button onClick={toggleDiagnostico} className={diagActivo ? 'btn-danger px-4 py-2' : 'btn-ghost px-4 py-2'}>
+            {diagActivo ? '■ Detener diagnóstico' : '▶ Diagnóstico (ver tramas)'}
+          </button>
+        </div>
+
+        {/* Consola de diagnóstico */}
+        <div className="mt-3">
+          <p className="text-xs text-slate-500 mb-1">
+            Poné peso en la balanza y observá las tramas crudas para ajustar el protocolo/parser al
+            modelo puntual antes de fijarlo.
+          </p>
+          <div className="bg-black rounded-lg p-3 h-48 overflow-y-auto font-mono text-xs">
+            {tramas.length === 0 ? (
+              <span className="text-slate-600">
+                {diagActivo ? 'Esperando tramas…' : 'Diagnóstico detenido'}
+              </span>
+            ) : (
+              tramas.map((t, i) => (
+                <div key={i} className="border-b border-white/5 py-0.5">
+                  <span className="text-slate-500">{t.ts.slice(11, 23)} </span>
+                  <span className="text-emerald-400">{t.hex}</span>
+                  <span className="text-slate-400 ml-2">"{t.ascii}"</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Empleadas y contraseña */}
+      <EmpleadasSection onFlash={flash} />
+      <PasswordSection onFlash={flash} />
+
+      {/* Backup */}
+      <section className="card p-5">
+        <h2 className="font-bold text-lg mb-3">💾 Respaldo de la base de datos</h2>
+        <p className="text-sm text-slate-400 mb-3">
+          Guardá una copia del archivo SQLite (todas las ventas y productos) en un pendrive o carpeta.
+        </p>
+        <button onClick={backup} className="btn-ghost px-4 py-2">
+          Hacer copia de seguridad ahora
+        </button>
+      </section>
+
+      {guardado && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-acento text-white px-5 py-3 rounded-xl shadow-xl z-50">
+          {guardado}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-sm text-slate-400 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
