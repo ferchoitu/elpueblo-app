@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import * as db from './db';
 import * as balanza from './balanza';
 import * as auth from './auth';
-import { imprimirTicket, imprimirCierreZ } from './impresora';
+import { imprimirTicket, imprimirCierreZ, imprimirPrueba } from './impresora';
 import { configurarAutoUpdate } from './updater';
 import {
   getAppConfig,
@@ -236,6 +236,30 @@ function registrarIPC() {
       auth.requireAdmin();
       setImpresora(v);
       return ok();
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  // Lista las impresoras instaladas en el sistema (Windows/CUPS).
+  ipcMain.handle('impresora:listar', async () => {
+    auth.requireAdmin();
+    try {
+      const list = win ? await win.webContents.getPrintersAsync() : [];
+      return list.map((p) => ({
+        name: p.name,
+        displayName: p.displayName || p.name,
+        isDefault: p.isDefault,
+      }));
+    } catch {
+      return [];
+    }
+  });
+  // Imprime un ticket de prueba con la config guardada.
+  ipcMain.handle('impresora:probar', async () => {
+    try {
+      auth.requireAdmin();
+      const r = await imprimirPrueba();
+      return r.ok ? ok() : fail(r.error);
     } catch (e) {
       return fail(e);
     }

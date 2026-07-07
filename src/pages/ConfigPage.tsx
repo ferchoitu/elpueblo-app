@@ -17,6 +17,9 @@ export default function ConfigPage() {
   const [diagActivo, setDiagActivo] = useState(false);
   const [tramas, setTramas] = useState<TramaDiagnostico[]>([]);
   const [logo, setLogo] = useState<string | null>(null);
+  const [impresoras, setImpresoras] = useState<{ name: string; displayName: string; isDefault: boolean }[]>([]);
+  const [probando, setProbando] = useState(false);
+  const [resultadoPrueba, setResultadoPrueba] = useState<{ ok: boolean; msg: string } | null>(null);
   const unsubRef = useRef<null | (() => void)>(null);
 
   const cargar = useCallback(async () => {
@@ -45,6 +48,27 @@ export default function ConfigPage() {
     setLogo(null);
     setCfg((c) => (c ? { ...c, negocio: { ...c.negocio, logoPath: null } } : c));
     flash('Logo quitado');
+  }
+
+  async function detectarImpresoras() {
+    const lista = await window.api.config.listarImpresoras();
+    setImpresoras(lista);
+    flash(lista.length ? `${lista.length} impresora(s) detectada(s)` : 'No se detectaron impresoras');
+  }
+
+  async function probarImpresora() {
+    if (!cfg) return;
+    setProbando(true);
+    setResultadoPrueba(null);
+    // Guardamos la config actual y luego imprimimos la prueba con esos valores.
+    await window.api.config.guardarImpresora(cfg.impresora);
+    const res = await window.api.config.probarImpresora();
+    setProbando(false);
+    setResultadoPrueba(
+      res.ok
+        ? { ok: true, msg: '✅ Se envió la impresión de prueba. Revisá que haya salido el ticket.' }
+        : { ok: false, msg: `❌ No se pudo imprimir: ${res.error}` }
+    );
   }
 
   useEffect(() => {
@@ -207,8 +231,39 @@ export default function ConfigPage() {
       {/* Impresora */}
       <section className="card p-5">
         <h2 className="font-bold text-lg mb-3">🖨️ Impresora térmica (Xprinter 58mm)</h2>
+
+        {/* Paso 1: detectar impresoras instaladas */}
+        <div className="bg-base-900 rounded-xl p-3 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold">1. Elegí tu impresora</span>
+            <button onClick={detectarImpresoras} className="btn-ghost px-3 py-1.5 text-sm">
+              🔄 Detectar
+            </button>
+          </div>
+          {impresoras.length > 0 ? (
+            <select
+              className="input"
+              value=""
+              onChange={(e) => e.target.value && setImp({ interfaz: `printer:${e.target.value}` })}
+            >
+              <option value="">— Elegí una impresora detectada —</option>
+              {impresoras.map((imp) => (
+                <option key={imp.name} value={imp.name}>
+                  {imp.displayName}
+                  {imp.isDefault ? ' (predeterminada)' : ''}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <p className="text-xs text-slate-500">
+              Tocá <b>Detectar</b> para listar las impresoras instaladas en el sistema. Si no aparece
+              ninguna, revisá que esté instalada y encendida, o usá una conexión directa abajo.
+            </p>
+          )}
+        </div>
+
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Interfaz / nombre">
+          <Field label="Interfaz / conexión">
             <input
               className="input"
               value={cfg.impresora.interfaz}
@@ -242,13 +297,40 @@ export default function ConfigPage() {
             </label>
           </Field>
         </div>
+
+        {/* Atajos de conexión directa */}
+        <div className="mt-2">
+          <div className="text-xs text-slate-400 mb-1">Atajos de conexión directa:</div>
+          <div className="flex flex-wrap gap-2">
+            <button onClick={() => setImp({ interfaz: '/dev/usb/lp0' })} className="btn-ghost px-3 py-1.5 text-xs">
+              USB Linux (/dev/usb/lp0)
+            </button>
+            <button onClick={() => setImp({ interfaz: 'tcp://192.168.0.100:9100' })} className="btn-ghost px-3 py-1.5 text-xs">
+              Red (tcp://IP:9100)
+            </button>
+          </div>
+        </div>
+
         <p className="text-xs text-slate-500 mt-2">
-          En Windows suele ser <code>printer:NOMBRE</code> (el nombre exacto con que quedó instalada
-          la impresora). También admite <code>//localhost/NOMBRE</code> o una ruta USB.
+          <b>Windows:</b> elegila del detector (o <code>printer:NOMBRE</code>). <b>Linux:</b> la impresora
+          del sistema (detector) o el dispositivo USB <code>/dev/usb/lp0</code>. <b>Red:</b> <code>tcp://IP:9100</code>.
         </p>
-        <button onClick={() => guardarImpresora(cfg.impresora)} className="btn-primary px-4 py-2 mt-3">
-          Guardar impresora
-        </button>
+
+        <div className="flex items-center gap-2 mt-3">
+          <button onClick={() => guardarImpresora(cfg.impresora)} className="btn-primary px-4 py-2">
+            Guardar impresora
+          </button>
+          <button onClick={probarImpresora} disabled={probando} className="btn-ghost px-4 py-2">
+            {probando ? 'Imprimiendo…' : '🧾 Imprimir prueba'}
+          </button>
+        </div>
+        {resultadoPrueba && (
+          <div
+            className={`text-sm mt-2 ${resultadoPrueba.ok ? 'text-acento' : 'text-red-400'}`}
+          >
+            {resultadoPrueba.msg}
+          </div>
+        )}
       </section>
 
       {/* Balanza */}

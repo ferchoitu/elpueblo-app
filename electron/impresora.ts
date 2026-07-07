@@ -119,6 +119,49 @@ export async function imprimirTicket(
 }
 
 // ===========================================================================
+// Impresión de PRUEBA (para configurar la impresora desde el panel).
+// ===========================================================================
+
+export async function imprimirPrueba(): Promise<{ ok: boolean; error?: string }> {
+  const cfgImp = getImpresora();
+  if (!cfgImp.habilitada) return { ok: false, error: 'La impresora está deshabilitada.' };
+  const neg = getNegocio();
+  const p = buildPrinter();
+  try {
+    p.alignCenter();
+    p.bold(true);
+    p.setTextDoubleHeight();
+    p.println(neg.nombre);
+    p.setTextNormal();
+    p.bold(false);
+    p.drawLine();
+    p.bold(true);
+    p.println('PRUEBA DE IMPRESION');
+    p.bold(false);
+    p.println(new Date().toLocaleString('es-AR'));
+    p.drawLine();
+    p.alignLeft();
+    p.println(`Interfaz: ${cfgImp.interfaz}`);
+    p.println(`Ancho: ${cfgImp.ancho} caracteres`);
+    p.drawLine();
+    p.alignCenter();
+    p.println('Si estas leyendo esto, la');
+    p.println('impresora quedo configurada OK.');
+    p.newLine();
+    p.cut();
+
+    const okConn = await p.isPrinterConnected();
+    if (!okConn) {
+      return { ok: false, error: `No se detecta la impresora en "${cfgImp.interfaz}".` };
+    }
+    await p.execute();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ===========================================================================
 // Ticket de CIERRE DE CAJA (Z).
 //   - ciego=true  (empleada): SIN montos de ventas ni esperado ni diferencia.
 //   - ciego=false (admin, reimpresión): Z completo con esperado y diferencia.

@@ -123,6 +123,9 @@ const api = {
       ipcRenderer.invoke('config:guardarNegocio', v),
     guardarImpresora: (v: ConfigImpresora): Promise<Resultado<void>> =>
       ipcRenderer.invoke('config:guardarImpresora', v),
+    listarImpresoras: (): Promise<{ name: string; displayName: string; isDefault: boolean }[]> =>
+      ipcRenderer.invoke('impresora:listar'),
+    probarImpresora: (): Promise<Resultado<void>> => ipcRenderer.invoke('impresora:probar'),
     guardarBalanza: (v: ConfigBalanza): Promise<Resultado<void>> =>
       ipcRenderer.invoke('config:guardarBalanza', v),
     elegirLogo: (): Promise<Resultado<{ path: string; dataUrl: string | null } | null>> =>
