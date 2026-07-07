@@ -125,6 +125,10 @@ const api = {
       ipcRenderer.invoke('config:guardarImpresora', v),
     guardarBalanza: (v: ConfigBalanza): Promise<Resultado<void>> =>
       ipcRenderer.invoke('config:guardarBalanza', v),
+    elegirLogo: (): Promise<Resultado<{ path: string; dataUrl: string | null } | null>> =>
+      ipcRenderer.invoke('config:elegirLogo'),
+    quitarLogo: (): Promise<Resultado<void>> => ipcRenderer.invoke('config:quitarLogo'),
+    logoDataUrl: (): Promise<string | null> => ipcRenderer.invoke('config:logoDataUrl'),
     rutaBackup: (): Promise<Resultado<string>> => ipcRenderer.invoke('config:rutaBackup'),
     hacerBackup: (): Promise<Resultado<string>> => ipcRenderer.invoke('config:hacerBackup'),
   },

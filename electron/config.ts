@@ -8,6 +8,8 @@ const defNegocio: ConfigNegocio = {
   direccion: 'Av. Siempreviva 742',
   cuit: '20-00000000-0',
   mensajePie: '¡Gracias por su compra!',
+  alias: '',
+  logoPath: null,
 };
 
 const defImpresora: ConfigImpresora = {
@@ -32,7 +34,8 @@ const defBalanza: ConfigBalanza = {
 };
 
 export function getNegocio(): ConfigNegocio {
-  return getConfig<ConfigNegocio>('negocio') ?? defNegocio;
+  // Merge con defaults para que configs viejas sin alias/logoPath queden completas.
+  return { ...defNegocio, ...(getConfig<Partial<ConfigNegocio>>('negocio') ?? {}) };
 }
 export function getImpresora(): ConfigImpresora {
   return getConfig<ConfigImpresora>('impresora') ?? defImpresora;

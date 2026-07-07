@@ -201,6 +201,8 @@ export interface ConfigNegocio {
   direccion: string;
   cuit: string;
   mensajePie: string;
+  alias: string; // alias/CBU para transferencias (se imprime en el ticket)
+  logoPath: string | null; // ruta a la imagen del logo (opcional)
 }
 
 export interface ConfigImpresora {

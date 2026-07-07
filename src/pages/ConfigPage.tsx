@@ -16,16 +16,36 @@ export default function ConfigPage() {
 
   const [diagActivo, setDiagActivo] = useState(false);
   const [tramas, setTramas] = useState<TramaDiagnostico[]>([]);
+  const [logo, setLogo] = useState<string | null>(null);
   const unsubRef = useRef<null | (() => void)>(null);
 
   const cargar = useCallback(async () => {
-    const [c, p] = await Promise.all([
+    const [c, p, l] = await Promise.all([
       window.api.config.obtener(),
       window.api.balanza.listarPuertos(),
+      window.api.config.logoDataUrl(),
     ]);
     setCfg(c);
     setPuertos(p);
+    setLogo(l);
   }, []);
+
+  async function elegirLogo() {
+    const res = await window.api.config.elegirLogo();
+    if (!res.ok) return flash(res.error ?? 'No se pudo cargar el logo');
+    if (res.data) {
+      setLogo(res.data.dataUrl);
+      setCfg((c) => (c ? { ...c, negocio: { ...c.negocio, logoPath: res.data!.path } } : c));
+      flash('Logo cargado');
+    }
+  }
+
+  async function quitarLogo() {
+    await window.api.config.quitarLogo();
+    setLogo(null);
+    setCfg((c) => (c ? { ...c, negocio: { ...c.negocio, logoPath: null } } : c));
+    flash('Logo quitado');
+  }
 
   useEffect(() => {
     cargar();
@@ -94,13 +114,43 @@ export default function ConfigPage() {
     <div className="h-full overflow-y-auto p-6 max-w-3xl mx-auto space-y-5">
       <h1 className="text-2xl font-bold">Configuración</h1>
 
-      {/* Negocio */}
+      {/* Ticket / Negocio */}
       <section className="card p-5">
-        <h2 className="font-bold text-lg mb-3">🏪 Datos del negocio (para el ticket)</h2>
+        <h2 className="font-bold text-lg mb-1">🧾 Ticket (lo que se imprime)</h2>
+        <p className="text-xs text-slate-500 mb-3">
+          El <b>número de ticket</b> y la <b>fecha y hora</b> se imprimen automáticamente en cada venta.
+        </p>
+
         <div className="grid grid-cols-1 gap-3">
-          <Field label="Nombre">
+          <Field label="Nombre de la panadería">
             <input className="input" value={cfg.negocio.nombre} onChange={(e) => setNeg({ nombre: e.target.value })} />
           </Field>
+
+          {/* Logo */}
+          <div>
+            <label className="block text-sm text-slate-400 mb-1">Logo (opcional, se imprime arriba del nombre)</label>
+            <div className="flex items-center gap-3">
+              {logo ? (
+                <img src={logo} alt="logo" className="h-14 w-auto bg-white rounded p-1" />
+              ) : (
+                <div className="h-14 w-14 rounded bg-base-700 flex items-center justify-center text-slate-500 text-xs">
+                  sin logo
+                </div>
+              )}
+              <button onClick={elegirLogo} className="btn-ghost px-3 py-2 text-sm">
+                {logo ? 'Cambiar logo' : 'Elegir logo'}
+              </button>
+              {logo && (
+                <button onClick={quitarLogo} className="btn-danger px-3 py-2 text-sm">
+                  Quitar
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-1">
+              Ideal: imagen en blanco y negro, angosta (máx. ~384 px de ancho). PNG o JPG.
+            </p>
+          </div>
+
           <Field label="Dirección">
             <input className="input" value={cfg.negocio.direccion} onChange={(e) => setNeg({ direccion: e.target.value })} />
           </Field>
@@ -108,13 +158,49 @@ export default function ConfigPage() {
             <Field label="CUIT">
               <input className="input" value={cfg.negocio.cuit} onChange={(e) => setNeg({ cuit: e.target.value })} />
             </Field>
-            <Field label="Mensaje del pie">
-              <input className="input" value={cfg.negocio.mensajePie} onChange={(e) => setNeg({ mensajePie: e.target.value })} />
+            <Field label="Alias / CBU para transferencias">
+              <input
+                className="input"
+                value={cfg.negocio.alias ?? ''}
+                onChange={(e) => setNeg({ alias: e.target.value })}
+                placeholder="ej: panaderia.delpueblo"
+              />
             </Field>
           </div>
+          <Field label="Mensaje del pie">
+            <input className="input" value={cfg.negocio.mensajePie} onChange={(e) => setNeg({ mensajePie: e.target.value })} />
+          </Field>
         </div>
-        <button onClick={() => guardarNegocio(cfg.negocio)} className="btn-primary px-4 py-2 mt-3">
-          Guardar negocio
+
+        {/* Vista previa del ticket */}
+        <div className="mt-4">
+          <div className="text-sm text-slate-400 mb-1">Vista previa</div>
+          <div className="bg-white text-black rounded-lg p-3 max-w-[240px] mx-auto font-mono text-[11px] leading-tight text-center">
+            {logo && <img src={logo} alt="logo" className="h-10 w-auto mx-auto mb-1" />}
+            <div className="font-bold text-sm">{cfg.negocio.nombre || 'NOMBRE'}</div>
+            {cfg.negocio.direccion && <div>{cfg.negocio.direccion}</div>}
+            {cfg.negocio.cuit && <div>CUIT: {cfg.negocio.cuit}</div>}
+            <div className="border-t border-dashed border-black/40 my-1" />
+            <div className="text-left">Ticket N: 123</div>
+            <div className="text-left">Fecha: {new Date().toLocaleString('es-AR')}</div>
+            <div className="border-t border-dashed border-black/40 my-1" />
+            <div className="text-left flex justify-between"><span>Medialuna x2</span><span>$1.200</span></div>
+            <div className="border-t border-dashed border-black/40 my-1" />
+            <div className="text-right font-bold">TOTAL $1.200</div>
+            {cfg.negocio.alias?.trim() && (
+              <>
+                <div className="border-t border-dashed border-black/40 my-1" />
+                <div>Transferencias — Alias:</div>
+                <div className="font-bold">{cfg.negocio.alias.trim()}</div>
+              </>
+            )}
+            <div className="border-t border-dashed border-black/40 my-1" />
+            <div>{cfg.negocio.mensajePie || '¡Gracias por su compra!'}</div>
+          </div>
+        </div>
+
+        <button onClick={() => guardarNegocio(cfg.negocio)} className="btn-primary px-4 py-2 mt-4">
+          Guardar ticket
         </button>
       </section>
 

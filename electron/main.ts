@@ -9,6 +9,7 @@ import { imprimirTicket, imprimirCierreZ } from './impresora';
 import { configurarAutoUpdate } from './updater';
 import {
   getAppConfig,
+  getNegocio,
   setNegocio,
   setImpresora,
   setBalanza,
@@ -248,6 +249,46 @@ function registrarIPC() {
       return fail(e);
     }
   });
+  // Logo del ticket: elegir imagen, previsualizar (data URL) y quitar.
+  const logoDataUrl = (ruta: string | null): string | null => {
+    if (!ruta || !fs.existsSync(ruta)) return null;
+    const ext = path.extname(ruta).toLowerCase().replace('.', '') || 'png';
+    const mime = ext === 'jpg' ? 'jpeg' : ext;
+    return `data:image/${mime};base64,${fs.readFileSync(ruta).toString('base64')}`;
+  };
+  ipcMain.handle('config:elegirLogo', async () => {
+    try {
+      auth.requireAdmin();
+      const { canceled, filePaths } = await dialog.showOpenDialog(win!, {
+        title: 'Elegí el logo (imagen)',
+        properties: ['openFile'],
+        filters: [{ name: 'Imágenes', extensions: ['png', 'jpg', 'jpeg', 'bmp'] }],
+      });
+      if (canceled || !filePaths[0]) return ok(null);
+      const origen = filePaths[0];
+      const ext = path.extname(origen).toLowerCase() || '.png';
+      const dest = path.join(app.getPath('userData'), `logo-ticket${ext}`);
+      fs.copyFileSync(origen, dest);
+      setNegocio({ ...getNegocio(), logoPath: dest });
+      return ok({ path: dest, dataUrl: logoDataUrl(dest) });
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('config:quitarLogo', () => {
+    try {
+      auth.requireAdmin();
+      setNegocio({ ...getNegocio(), logoPath: null });
+      return ok();
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('config:logoDataUrl', () => {
+    auth.requireAdmin();
+    return logoDataUrl(getNegocio().logoPath);
+  });
+
   ipcMain.handle('config:rutaBackup', () => ok(db.dbPath()));
   ipcMain.handle('config:hacerBackup', async () => {
     try {

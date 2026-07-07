@@ -1,4 +1,5 @@
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
+import fs from 'node:fs';
 import type { VentaConItems, Turno } from '../shared/types';
 import { getImpresora, getNegocio } from './config';
 
@@ -42,6 +43,14 @@ export async function imprimirTicket(
 
   try {
     p.alignCenter();
+    // Logo (opcional). Si falla la impresión de la imagen, seguimos con el nombre.
+    if (neg.logoPath && fs.existsSync(neg.logoPath)) {
+      try {
+        await p.printImage(neg.logoPath);
+      } catch {
+        /* sin logo, seguimos */
+      }
+    }
     p.bold(true);
     p.setTextDoubleHeight();
     p.println(neg.nombre);
@@ -77,6 +86,16 @@ export async function imprimirTicket(
     if (venta.metodo_pago === 'efectivo' && venta.monto_recibido != null) {
       p.leftRight('Recibido', money(venta.monto_recibido));
       p.leftRight('Vuelto', money(venta.vuelto ?? 0));
+    }
+
+    // Alias para transferencias (si está configurado).
+    if (neg.alias && neg.alias.trim()) {
+      p.drawLine();
+      p.alignCenter();
+      p.println('Transferencias — Alias:');
+      p.bold(true);
+      p.println(neg.alias.trim());
+      p.bold(false);
     }
 
     p.drawLine();
