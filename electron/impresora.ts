@@ -132,14 +132,13 @@ export async function imprimirCierreZ(
     p.println(`Tickets:  ${turno.cantidad_tickets ?? 0}`);
     p.drawLine();
 
-    p.leftRight('Fondo inicial', money(turno.fondo_inicial));
-    p.leftRight('Efectivo contado', money(turno.efectivo_contado ?? 0));
+    p.leftRight('Dejar de fondo', money(turno.fondo_inicial));
+    p.leftRight('Retirado (excedente)', money(turno.efectivo_contado ?? 0));
 
     if (!opts.ciego) {
       // Z completo para el administrador.
       p.leftRight('Ventas totales', money(turno.total_ventas ?? 0));
-      p.leftRight('Ventas efectivo', money(turno.total_efectivo ?? 0));
-      p.leftRight('Efectivo esperado', money(turno.esperado_efectivo ?? 0));
+      p.leftRight('Esperado a retirar', money(turno.esperado_efectivo ?? 0));
       p.drawLine();
       p.bold(true);
       const dif = turno.diferencia ?? 0;
@@ -149,8 +148,8 @@ export async function imprimirCierreZ(
     } else {
       p.newLine();
       p.alignCenter();
-      p.println('Comprobante de cierre.');
-      p.println('El arqueo lo revisa el administrador.');
+      p.println(`Dejá ${money(turno.fondo_inicial)} de fondo en la caja.`);
+      p.println('Guardá el excedente junto a este ticket.');
     }
 
     p.drawLine();

@@ -477,14 +477,17 @@ export function resumenTurno(turnoId: string): {
   return r;
 }
 
-export function cerrarTurno(turnoId: string, efectivoContado: number): Turno {
+export function cerrarTurno(turnoId: string, efectivoRetirado: number): Turno {
   const abierto = obtenerTurno(turnoId);
   if (!abierto) throw new Error('Turno no encontrado');
   if (abierto.estado === 'cerrado') throw new Error('El turno ya está cerrado');
 
   const res = resumenTurno(turnoId);
-  const esperado = abierto.fondo_inicial + res.total_efectivo;
-  const diferencia = efectivoContado - esperado;
+  // Cierre "por retiro": el fondo inicial queda en la caja para el próximo turno.
+  // El empleado retira el excedente, que debería igualar las ventas en efectivo.
+  // La diferencia controla eso (esperado a retirar = ventas en efectivo).
+  const esperado = res.total_efectivo;
+  const diferencia = efectivoRetirado - esperado;
 
   db.prepare(
     `UPDATE turnos SET cierre_at=@cierre_at, efectivo_contado=@efectivo_contado,
@@ -494,7 +497,7 @@ export function cerrarTurno(turnoId: string, efectivoContado: number): Turno {
   ).run({
     id: turnoId,
     cierre_at: nowUTC(),
-    efectivo_contado: efectivoContado,
+    efectivo_contado: efectivoRetirado, // acá guardamos lo retirado (el excedente)
     total_ventas: res.total_ventas,
     total_efectivo: res.total_efectivo,
     cantidad_tickets: res.cantidad_tickets,
@@ -708,8 +711,8 @@ export function exportarTurnosCSV(rango: RangoFechas): string {
   const turnos = listarTurnos(rango);
   const cols = [
     'turno', 'empleada', 'apertura', 'cierre', 'estado', 'fondo_inicial',
-    'cantidad_tickets', 'total_ventas', 'total_efectivo', 'esperado_efectivo',
-    'efectivo_contado', 'diferencia',
+    'cantidad_tickets', 'total_ventas', 'ventas_efectivo', 'esperado_a_retirar',
+    'efectivo_retirado', 'diferencia',
   ];
   const filas: string[] = [cols.join(',')];
   for (const t of turnos) {

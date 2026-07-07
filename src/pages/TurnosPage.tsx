@@ -78,8 +78,8 @@ export default function TurnosPage() {
           <div>Apertura</div>
           <div>Cierre</div>
           <div className="text-right">Ventas</div>
-          <div className="text-right">Esperado</div>
-          <div className="text-right">Contado</div>
+          <div className="text-right">A retirar</div>
+          <div className="text-right">Retirado</div>
           <div className="text-right">Dif.</div>
         </div>
         {turnos.length === 0 && (
