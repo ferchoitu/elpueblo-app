@@ -10,7 +10,7 @@ interface Props {
 export default function CajaAperturaCierre({ turnos }: Props) {
   return (
     <div className="card p-4">
-      <h3 className="font-bold mb-3">Caja: apertura y cierre por turno</h3>
+      <h3 className="font-bold mb-3">Caja por turno (fondo, excedente y conteo)</h3>
       {turnos.length === 0 ? (
         <div className="text-slate-500 py-8 text-center">Sin turnos en el período</div>
       ) : (
@@ -20,15 +20,16 @@ export default function CajaAperturaCierre({ turnos }: Props) {
               <tr className="text-left text-slate-400 border-b border-base-700">
                 <th className="py-2 pr-2 font-semibold">Fecha</th>
                 <th className="py-2 pr-2 font-semibold">Empleada</th>
-                <th className="py-2 pr-2 font-semibold text-right">Fondo apertura</th>
-                <th className="py-2 pr-2 font-semibold text-right">Fondo cierre</th>
-                <th className="py-2 pr-2 font-semibold text-right">Retirado</th>
+                <th className="py-2 pr-2 font-semibold text-right">Fondo</th>
+                <th className="py-2 pr-2 font-semibold text-right">Excedente esp.</th>
+                <th className="py-2 pr-2 font-semibold text-right">Contado</th>
                 <th className="py-2 font-semibold text-right">Dif.</th>
               </tr>
             </thead>
             <tbody>
               {turnos.map((t) => {
                 const dif = t.diferencia ?? 0;
+                const cerrado = t.estado === 'cerrado';
                 return (
                   <tr key={t.id} className="border-b border-base-700/40 hover:bg-base-700/30">
                     <td className="py-1.5 pr-2 whitespace-nowrap">
@@ -38,18 +39,20 @@ export default function CajaAperturaCierre({ turnos }: Props) {
                     <td className="py-1.5 pr-2">{t.usuario_nombre}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">{money(t.fondo_inicial)}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">
-                      {t.estado === 'cerrado' && t.fondo_cierre != null ? (
-                        money(t.fondo_cierre)
-                      ) : (
-                        <span className="text-acento">abierto</span>
-                      )}
+                      {cerrado ? money(t.esperado_efectivo ?? t.total_efectivo ?? 0) : <span className="text-acento">abierto</span>}
                     </td>
                     <td className="py-1.5 pr-2 text-right tabular-nums">
-                      {t.efectivo_contado != null ? money(t.efectivo_contado) : '—'}
+                      {t.efectivo_contado != null ? (
+                        money(t.efectivo_contado)
+                      ) : cerrado ? (
+                        <span className="text-slate-500">s/contar</span>
+                      ) : (
+                        '—'
+                      )}
                     </td>
                     <td
                       className={`py-1.5 text-right tabular-nums ${
-                        t.estado !== 'cerrado'
+                        t.efectivo_contado == null
                           ? 'text-slate-600'
                           : dif === 0
                           ? 'text-slate-400'
@@ -58,7 +61,7 @@ export default function CajaAperturaCierre({ turnos }: Props) {
                           : 'text-red-400'
                       }`}
                     >
-                      {t.estado === 'cerrado' ? `${dif > 0 ? '+' : ''}${money(dif)}` : '—'}
+                      {t.efectivo_contado != null ? `${dif > 0 ? '+' : ''}${money(dif)}` : '—'}
                     </td>
                   </tr>
                 );

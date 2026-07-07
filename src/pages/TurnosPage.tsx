@@ -17,6 +17,7 @@ export default function TurnosPage() {
   const [hasta, setHasta] = useState('');
   const [turnos, setTurnos] = useState<Turno[]>([]);
   const [msg, setMsg] = useState('');
+  const [contando, setContando] = useState<{ id: string; valor: string } | null>(null);
 
   const cargar = useCallback(async () => {
     const rango = preset === 'personalizado' ? rangoPersonalizado(desde, hasta) : rangoDePreset(preset);
@@ -31,6 +32,20 @@ export default function TurnosPage() {
     const res = await window.api.turno.reimprimirZ(t.id);
     setMsg(res.ok ? `Ticket Z del turno #${t.numero} enviado` : res.error ?? 'Error al imprimir');
     setTimeout(() => setMsg(''), 3000);
+  }
+
+  async function guardarConteo() {
+    if (!contando) return;
+    const valor = parseFloat(contando.valor || '0') || 0;
+    const res = await window.api.turno.registrarConteo(contando.id, valor);
+    setContando(null);
+    if (res.ok) {
+      setMsg('Conteo registrado');
+      setTimeout(() => setMsg(''), 2500);
+      cargar();
+    } else {
+      alert(res.error);
+    }
   }
 
   async function exportar() {
@@ -78,8 +93,8 @@ export default function TurnosPage() {
           <div>Apertura</div>
           <div>Cierre</div>
           <div className="text-right">Ventas</div>
-          <div className="text-right">A retirar</div>
-          <div className="text-right">Retirado</div>
+          <div className="text-right">Excedente esp.</div>
+          <div className="text-right">Contado</div>
           <div className="text-right">Dif.</div>
         </div>
         {turnos.length === 0 && (
@@ -102,17 +117,53 @@ export default function TurnosPage() {
             </div>
             <div className="text-right tabular-nums">{t.total_ventas != null ? money(t.total_ventas) : '—'}</div>
             <div className="text-right tabular-nums">{t.esperado_efectivo != null ? money(t.esperado_efectivo) : '—'}</div>
-            <div className="text-right tabular-nums">{t.efectivo_contado != null ? money(t.efectivo_contado) : '—'}</div>
+            <div className="text-right tabular-nums">
+              {contando?.id === t.id ? (
+                <input
+                  autoFocus
+                  className="input w-24 text-right py-1 text-sm"
+                  value={contando.valor}
+                  onChange={(e) => setContando({ id: t.id, valor: e.target.value.replace(/[^\d]/g, '') })}
+                  onKeyDown={(e) => e.key === 'Enter' && guardarConteo()}
+                  placeholder="$"
+                />
+              ) : t.efectivo_contado != null ? (
+                money(t.efectivo_contado)
+              ) : t.estado === 'cerrado' ? (
+                <button
+                  onClick={() => setContando({ id: t.id, valor: '' })}
+                  className="btn-ghost px-2 py-1 text-xs"
+                  title="Registrar lo que contaste"
+                >
+                  ✏️ Contar
+                </button>
+              ) : (
+                '—'
+              )}
+            </div>
             <div className="text-right tabular-nums flex items-center justify-end gap-2">
-              {t.estado === 'cerrado' ? (
+              {contando?.id === t.id ? (
                 <>
-                  <span
-                    className={dif(t) === 0 ? 'text-slate-400' : dif(t) > 0 ? 'text-sky-400' : 'text-red-400'}
-                    title={dif(t) > 0 ? 'Sobrante' : dif(t) < 0 ? 'Faltante' : 'Sin diferencia'}
-                  >
-                    {dif(t) > 0 ? '+' : ''}
-                    {money(dif(t))}
-                  </span>
+                  <button onClick={guardarConteo} className="btn-primary px-2 py-1 text-xs">
+                    Guardar
+                  </button>
+                  <button onClick={() => setContando(null)} className="btn-ghost px-2 py-1 text-xs">
+                    ✕
+                  </button>
+                </>
+              ) : t.estado === 'cerrado' ? (
+                <>
+                  {t.efectivo_contado != null ? (
+                    <span
+                      className={dif(t) === 0 ? 'text-slate-400' : dif(t) > 0 ? 'text-sky-400' : 'text-red-400'}
+                      title={dif(t) > 0 ? 'Sobrante' : dif(t) < 0 ? 'Faltante' : 'Sin diferencia'}
+                    >
+                      {dif(t) > 0 ? '+' : ''}
+                      {money(dif(t))}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600">s/contar</span>
+                  )}
                   <button
                     onClick={() => reimprimir(t)}
                     className="btn-ghost px-2 py-1 text-xs"

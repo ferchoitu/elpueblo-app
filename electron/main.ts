@@ -430,11 +430,11 @@ function registrarIPC() {
       return fail(e);
     }
   });
-  ipcMain.handle('turno:cerrar', async (_e, efectivoRetirado: number, fondoCierre: number) => {
+  ipcMain.handle('turno:cerrar', async () => {
     try {
       const s = auth.requireSesion();
       if (!s.turno_id) throw new Error('No hay turno abierto');
-      const turno = db.cerrarTurno(s.turno_id, efectivoRetirado, fondoCierre);
+      const turno = db.cerrarTurno(s.turno_id);
       auth.setTurnoEnSesion(null);
       // Ticket Z ciego si la cierra una empleada; completo si es admin.
       const imp = await imprimirCierreZ(turno, { ciego: s.rol === 'empleada' });
@@ -447,6 +447,14 @@ function registrarIPC() {
   ipcMain.handle('turnos:listar', (_e, rango: RangoFechas) => {
     auth.requireAdmin();
     return db.listarTurnos(rango);
+  });
+  ipcMain.handle('turno:registrarConteo', (_e, turnoId: string, efectivoContado: number) => {
+    try {
+      auth.requireAdmin();
+      return ok(db.registrarConteoTurno(turnoId, efectivoContado));
+    } catch (e) {
+      return fail(e);
+    }
   });
   ipcMain.handle('turnos:reimprimirZ', async (_e, turnoId: string) => {
     try {

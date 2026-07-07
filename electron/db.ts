@@ -485,39 +485,45 @@ export function resumenTurno(turnoId: string): {
   return r;
 }
 
-export function cerrarTurno(
-  turnoId: string,
-  efectivoRetirado: number,
-  fondoCierre: number
-): Turno {
+export function cerrarTurno(turnoId: string): Turno {
   const abierto = obtenerTurno(turnoId);
   if (!abierto) throw new Error('Turno no encontrado');
   if (abierto.estado === 'cerrado') throw new Error('El turno ya está cerrado');
 
   const res = resumenTurno(turnoId);
-  // Cierre "por retiro": el fondo queda en la caja para el próximo turno (lo marca
-  // el empleado). El empleado retira el excedente, que debería igualar las ventas
-  // en efectivo. La diferencia controla eso (esperado a retirar = ventas efectivo).
-  const esperado = res.total_efectivo;
-  const diferencia = efectivoRetirado - esperado;
-
+  // El empleado NO cuenta: deja el fondo con el que empezó en la caja y guarda el
+  // excedente (ventas) junto al ticket Z. Guardamos el excedente ESPERADO
+  // (= ventas en efectivo); el admin cuenta el sobre después con `registrarConteo`.
   db.prepare(
-    `UPDATE turnos SET cierre_at=@cierre_at, fondo_cierre=@fondo_cierre, efectivo_contado=@efectivo_contado,
+    `UPDATE turnos SET cierre_at=@cierre_at, fondo_cierre=@fondo_cierre, efectivo_contado=NULL,
        total_ventas=@total_ventas, total_efectivo=@total_efectivo, cantidad_tickets=@cantidad_tickets,
-       esperado_efectivo=@esperado_efectivo, diferencia=@diferencia, estado='cerrado'
+       esperado_efectivo=@esperado_efectivo, diferencia=NULL, estado='cerrado'
      WHERE id=@id`
   ).run({
     id: turnoId,
     cierre_at: nowUTC(),
-    fondo_cierre: fondoCierre,
-    efectivo_contado: efectivoRetirado, // acá guardamos lo retirado (el excedente)
+    fondo_cierre: abierto.fondo_inicial, // deja el fondo con el que abrió
     total_ventas: res.total_ventas,
     total_efectivo: res.total_efectivo,
     cantidad_tickets: res.cantidad_tickets,
-    esperado_efectivo: esperado,
-    diferencia,
+    esperado_efectivo: res.total_efectivo, // excedente esperado a guardar
   });
 
+  return obtenerTurno(turnoId)!;
+}
+
+/** El admin cuenta el sobre del excedente después y registra el resultado. */
+export function registrarConteoTurno(turnoId: string, efectivoContado: number): Turno {
+  const t = obtenerTurno(turnoId);
+  if (!t) throw new Error('Turno no encontrado');
+  if (t.estado !== 'cerrado') throw new Error('El turno todavía está abierto');
+  const esperado = t.esperado_efectivo ?? t.total_efectivo ?? 0;
+  const diferencia = efectivoContado - esperado;
+  db.prepare('UPDATE turnos SET efectivo_contado = ?, diferencia = ? WHERE id = ?').run(
+    efectivoContado,
+    diferencia,
+    turnoId
+  );
   return obtenerTurno(turnoId)!;
 }
 

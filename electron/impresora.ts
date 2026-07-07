@@ -194,26 +194,31 @@ export async function imprimirCierreZ(
     p.println(`Tickets:  ${turno.cantidad_tickets ?? 0}`);
     p.drawLine();
 
-    const fondoCierre = turno.fondo_cierre ?? turno.fondo_inicial;
-    p.leftRight('Fondo apertura', money(turno.fondo_inicial));
-    p.leftRight('Fondo en caja (cierre)', money(fondoCierre));
-    p.leftRight('Retirado (excedente)', money(turno.efectivo_contado ?? 0));
+    const fondo = turno.fondo_inicial;
+    p.leftRight('Fondo (queda en caja)', money(fondo));
 
     if (!opts.ciego) {
       // Z completo para el administrador.
       p.leftRight('Ventas totales', money(turno.total_ventas ?? 0));
-      p.leftRight('Esperado a retirar', money(turno.esperado_efectivo ?? 0));
-      p.drawLine();
-      p.bold(true);
-      const dif = turno.diferencia ?? 0;
-      const etiqueta = dif === 0 ? 'SIN DIFERENCIA' : dif > 0 ? 'SOBRANTE' : 'FALTANTE';
-      p.leftRight(etiqueta, money(Math.abs(dif)));
-      p.bold(false);
+      p.leftRight('Excedente esperado', money(turno.esperado_efectivo ?? turno.total_efectivo ?? 0));
+      if (turno.efectivo_contado != null) {
+        p.leftRight('Contado', money(turno.efectivo_contado));
+        p.drawLine();
+        p.bold(true);
+        const dif = turno.diferencia ?? 0;
+        const etiqueta = dif === 0 ? 'SIN DIFERENCIA' : dif > 0 ? 'SOBRANTE' : 'FALTANTE';
+        p.leftRight(etiqueta, money(Math.abs(dif)));
+        p.bold(false);
+      } else {
+        p.println('(pendiente de contar)');
+      }
     } else {
+      // Empleada: a ciegas, sin montos de ventas.
       p.newLine();
       p.alignCenter();
-      p.println(`Dejá ${money(fondoCierre)} de fondo en la caja.`);
-      p.println('Guardá el excedente junto a este ticket.');
+      p.println(`Dejá ${money(fondo)} de fondo en la caja.`);
+      p.println('Guardá el excedente (las ventas)');
+      p.println('junto a este ticket.');
     }
 
     p.drawLine();

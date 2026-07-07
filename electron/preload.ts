@@ -76,11 +76,11 @@ const api = {
     actual: (): Promise<TurnoActualEmpleada | null> => ipcRenderer.invoke('turno:actual'),
     abrir: (fondoInicial: number): Promise<Resultado<{ id: string; numero: number }>> =>
       ipcRenderer.invoke('turno:abrir', fondoInicial),
-    cerrar: (
-      efectivoRetirado: number,
-      fondoCierre: number
-    ): Promise<Resultado<{ numero: number; ticketImpreso: boolean; errorImpresion?: string }>> =>
-      ipcRenderer.invoke('turno:cerrar', efectivoRetirado, fondoCierre),
+    cerrar: (): Promise<
+      Resultado<{ numero: number; ticketImpreso: boolean; errorImpresion?: string }>
+    > => ipcRenderer.invoke('turno:cerrar'),
+    registrarConteo: (turnoId: string, efectivoContado: number): Promise<Resultado<Turno>> =>
+      ipcRenderer.invoke('turno:registrarConteo', turnoId, efectivoContado),
     listar: (rango: { desde: string; hasta: string }): Promise<Turno[]> =>
       ipcRenderer.invoke('turnos:listar', rango),
     reimprimirZ: (turnoId: string): Promise<Resultado<void>> =>
