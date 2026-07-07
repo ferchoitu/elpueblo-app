@@ -56,6 +56,8 @@ export interface Venta {
   estado: EstadoVenta;
   turno_id: string | null;
   usuario_id: string | null;
+  anulada_por: string | null; // nombre de quien anuló
+  anulada_at: string | null; // ISO UTC
   synced_at: string | null;
 }
 

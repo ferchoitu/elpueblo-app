@@ -28,6 +28,27 @@ export default function App() {
     init();
   }, [init]);
 
+  // Auto-bloqueo del ADMIN por inactividad: si se aleja del mostrador logueado,
+  // a los 10 minutos sin tocar nada se cierra la sesión (la empleada no ve sus datos).
+  const esAdminSesion = sesion?.rol === 'admin';
+  useEffect(() => {
+    if (!esAdminSesion) return;
+    const LIMITE_MS = 10 * 60 * 1000;
+    let timer: ReturnType<typeof setTimeout>;
+    const reiniciar = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => logout(), LIMITE_MS);
+    };
+    window.addEventListener('pointerdown', reiniciar);
+    window.addEventListener('keydown', reiniciar);
+    reiniciar();
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('pointerdown', reiniciar);
+      window.removeEventListener('keydown', reiniciar);
+    };
+  }, [esAdminSesion, logout]);
+
   if (cargando) {
     return <div className="h-full flex items-center justify-center text-slate-500">Cargando…</div>;
   }

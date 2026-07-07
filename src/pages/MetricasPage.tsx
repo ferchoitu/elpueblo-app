@@ -63,6 +63,23 @@ export default function MetricasPage() {
     else if (!res.ok) alert(res.error);
   }
 
+  async function reimprimirTicket(v: VentaConItems) {
+    const res = await window.api.ticket.reimprimir(v.id);
+    alert(res.ok ? `Ticket #${v.numero} enviado a la impresora` : res.error);
+  }
+
+  async function anularVenta(v: VentaConItems) {
+    if (!confirm(`¿Anular la venta #${v.numero} por ${money(v.total)}? Queda registrada como anulada.`))
+      return;
+    const res = await window.api.venta.anular(v.id);
+    if (!res.ok) {
+      alert(res.error);
+      return;
+    }
+    setDetalle(null);
+    cargar();
+  }
+
   return (
     <div className="h-full overflow-y-auto p-6 space-y-5">
       {/* Selector de período */}
@@ -187,6 +204,23 @@ export default function MetricasPage() {
                 Recibido {money(detalle.monto_recibido)} · Vuelto {money(detalle.vuelto ?? 0)}
               </div>
             )}
+            {detalle.estado === 'anulada' && detalle.anulada_por && (
+              <div className="text-xs text-red-400/80 mt-2">
+                Anulada por {detalle.anulada_por}
+                {detalle.anulada_at ? ` el ${fechaHoraLocal(detalle.anulada_at)}` : ''}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button onClick={() => reimprimirTicket(detalle)} className="btn-ghost py-3">
+                🖨 Reimprimir ticket
+              </button>
+              {detalle.estado === 'completada' && (
+                <button onClick={() => anularVenta(detalle)} className="btn-danger py-3">
+                  ↩︎ Anular esta venta
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

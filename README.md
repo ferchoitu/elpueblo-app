@@ -2,213 +2,176 @@
 
 Caja registradora de escritorio para panadería. **100% offline.** Registra ventas por
 **unidad, gramo o kilo**, toma el peso de una **balanza Systel** por RS-232/USB, imprime el
-ticket en una **impresora térmica Xprinter 58 mm** y guarda todo en una base **SQLite local**
-para analizar las ventas por día / semana / mes.
+ticket en una **impresora térmica Xprinter 58 mm** y guarda todo en una base **SQLite local**.
+Con **usuarios por rol** (admin / empleadas con PIN), **turnos con cierre de caja**, métricas
+completas y **auto-actualización** desde GitHub Releases.
 
 > No lleva control de stock. Un producto es un **nombre + precio** para cobrar rápido.
 
+## Funciones principales
+
+- **POS táctil**: grilla de tiles con emoji/color por categoría, tabs, **buscador**, venta por
+  unidad / peso / ambos, **monto libre** ("Varios"), carrito con stepper, cobro con vuelto.
+- **Balanza Systel Croma 30 V2** (RS-232/USB) con modo diagnóstico y fallback manual.
+- **Ticket 58 mm** con **logo**, datos del negocio, **alias para transferencias**, N° y
+  fecha/hora automáticos. **Reimpresión** del último ticket (POS) o de cualquiera (admin).
+- **Roles**: la **empleada** (PIN de 4 dígitos) solo ve la Caja, sin números de ventas.
+  El **admin** (usuario + contraseña) ve todo. Datos de dinero blindados en el proceso main.
+- **Turnos / cierre de caja sin contar**: la empleada abre con un fondo, y al cerrar deja ese
+  fondo en la caja y guarda el excedente con el **ticket Z**. El **admin cuenta después** y
+  registra el conteo → diferencia (faltante/sobrante) por turno.
+- **Anulaciones auditadas**: quién y cuándo anuló; el admin puede anular cualquier ticket.
+- **Métricas (admin)**: KPIs, evolución por día, **ventas por hora**, comparativa mensual,
+  top productos, desglose por pago, caja por turno, **detalle de artículo por hora** y
+  **listado de tickets**. Períodos: hoy / semana / mes / **año** / personalizado.
+- **Export CSV** de ventas (una fila por artículo, con turno/empleada/pago) y de cierres.
+- **Backups**: manual (botón) y **automático diario** (rota 30 copias) — ambos consistentes.
+- **Auto-update**: la app instalada se actualiza sola desde GitHub Releases.
+
 ## Stack
 
-- **Electron** + **electron-builder** (instalador `.exe` para Windows)
+- **Electron** + **electron-builder** (instalador `.exe` Windows, AppImage/`.deb` Linux)
 - **React + TypeScript + Vite** (renderer) · **Tailwind CSS** (UI táctil, tema oscuro)
-- **better-sqlite3** (base local, proceso main)
-- **serialport** (balanza, proceso main)
-- **node-thermal-printer** (ESC/POS, proceso main)
-- **Zustand** (carrito) · **Recharts** (métricas)
+- **better-sqlite3** (base local) · **serialport** (balanza) · **node-thermal-printer** (ESC/POS)
+- **Zustand** (estado) · **Recharts** (gráficos) · **electron-updater** (auto-update)
 
 Todo el hardware y la base viven en el **proceso main**; el renderer se comunica por **IPC**
-(`ipcRenderer.invoke` / `ipcMain.handle`) a través de un `preload` seguro (`contextBridge`).
+a través de un `preload` seguro (`contextBridge`). Los canales con datos de dinero exigen
+sesión de **admin** en el main (no es solo ocultamiento de UI).
 
 ---
 
 ## Requisitos para desarrollar / compilar
 
 - **Node.js 18+** (probado con Node 20/22).
-- **Windows:** herramientas de build para módulos nativos → instalar con
-  `npm i -g windows-build-tools` **o** el "Desktop development with C++" de Visual Studio +
-  **Python 3.11** (Python 3.12+ no trae `distutils`, que node-gyp necesita).
+- Herramientas de build para los módulos nativos (`better-sqlite3`, `serialport`):
+  - **Windows:** Visual Studio Build Tools ("Desktop development with C++") + **Python 3.11**
+    (3.12+ no trae `distutils`, que node-gyp necesita).
+  - **Linux:** `sudo apt install build-essential python3`.
+  - **macOS (solo dev):** si `npm install` falla por Python sin `distutils`:
+    ```bash
+    python3 -m venv gypvenv && ./gypvenv/bin/pip install "setuptools<74"
+    export npm_config_python="$PWD/gypvenv/bin/python"
+    npm run rebuild
+    ```
 
-## Instalar y correr en desarrollo
+## Desarrollo
 
 ```bash
 npm install        # instala y recompila los módulos nativos para Electron
-npm run dev        # levanta Vite + Electron con hot reload
+npm run dev        # Vite + Electron con hot reload
 ```
 
-Si `npm install` falla al recompilar módulos nativos por Python, usá Python 3.11:
+En desarrollo se siembran productos de prueba; **en la app instalada el catálogo arranca vacío**.
 
+## Instaladores
+
+| Plataforma | Comando (en esa plataforma) | Resultado en `release/` |
+|---|---|---|
+| Windows | `npm run dist:win` | `DEL-PUEBLO-Caja-Setup-<v>.exe` (NSIS) |
+| Linux | `npm run dist:linux` | `.AppImage` (portable, se auto-actualiza) + `.deb` |
+
+> No compilar cruzado (ej. `.exe` desde Mac): los módulos nativos deben compilarse en la
+> plataforma destino. Para eso está el CI (abajo).
+
+**Linux — permisos de hardware (una vez):**
 ```bash
-npm config set python /ruta/a/python3.11
-npm run rebuild    # electron-rebuild de better-sqlite3 y serialport
+sudo usermod -aG dialout,lp $USER   # balanza (serie) + impresora; re-loguearse
+sudo apt install -y libfuse2        # para que corra el AppImage
 ```
-
-## Generar el instalador `.exe` (Windows)
-
-Ejecutar **en Windows**:
-
-```bash
-npm run dist:win
-```
-
-El instalador NSIS queda en `release/DEL-PUEBLO-Caja-Setup-<version>.exe`.
-Instalarlo en una PC limpia, abrir sin internet, vender, imprimir y leer la balanza.
-
-> El build multiplataforma (generar el `.exe` desde Mac/Linux) no es confiable con módulos
-> nativos: compilar el `.exe` **desde Windows**.
-
-## Generar el paquete Linux (AppImage / .deb)
-
-Ejecutar **en Linux** (o en la misma distro destino):
-
-```bash
-npm install        # recompila los nativos para Linux
-npm run dist:linux
-```
-
-Queda en `release/DEL-PUEBLO-Caja-<version>.AppImage` (portable, doble clic para correr) y un `.deb`.
-
-**Permisos de hardware en Linux** (una vez):
-- **Balanza (puerto serie):** el usuario debe estar en el grupo `dialout`.
-  ```bash
-  sudo usermod -aG dialout $USER   # cerrar sesión y volver a entrar
-  ```
-  En Config → Balanza, el puerto suele ser `/dev/ttyUSB0` (adaptador USB-RS232). Listalo con `ls /dev/ttyUSB*`.
-- **Impresora térmica:** lo más simple es apuntar la interfaz al **dispositivo crudo** o a una **impresora de red**:
-  - USB directo: interfaz `/dev/usb/lp0` (agregar el usuario al grupo `lp`: `sudo usermod -aG lp $USER`).
-  - Red / Ethernet: interfaz `tcp://IP_DE_LA_IMPRESORA:9100`.
-  - Por nombre de CUPS (`printer:NOMBRE`) requiere tener la impresora instalada en CUPS; el dispositivo crudo suele ser más directo para ESC/POS.
+Balanza: `/dev/ttyUSB0`. Impresora: nombre de CUPS, `/dev/usb/lp0` o `tcp://IP:9100`.
 
 ---
 
-## La base de datos
+## Primer uso
 
-- Archivo único SQLite en `app.getPath('userData')`
-  (Windows: `C:\Users\<usuario>\AppData\Roaming\DEL PUEBLO Caja\delpueblo.db`).
-- Sobrevive a las actualizaciones del programa.
-- Diseño **sync-ready**: cada registro tiene **UUID**, las ventas tienen `synced_at`
-  (NULL = pendiente de subir) y las fechas están en **UTC ISO 8601**. Esto permite, en una
-  fase futura, sincronizar a la nube sin rehacer el esquema. **La nube no está implementada.**
+1. Al abrir por primera vez, el **asistente** crea el administrador (usuario + contraseña) y
+   muestra un **código de recuperación** — guardalo: es la única forma offline de resetear la
+   contraseña ("¿Olvidaste la contraseña?" en el login).
+2. Como admin: cargá **productos y categorías**, y en **Config → Empleadas** creá a cada
+   empleada con su **PIN de 4 dígitos**.
+3. En **Config** ajustá el **ticket** (nombre, logo, alias de transferencias), la **impresora**
+   (detector + impresión de prueba) y la **balanza** (diagnóstico).
 
-### Respaldo
+## Flujo diario
 
-En **Config → Respaldo** hay un botón para copiar el archivo `.db` a un pendrive o carpeta.
-También se puede copiar el archivo a mano desde la ruta de arriba con el programa cerrado.
+- La empleada entra con su PIN → **abre turno** marcando el fondo inicial → vende.
+- Al cerrar: **deja el fondo** con el que abrió en la caja y **guarda el excedente junto al
+  ticket Z**. No cuenta nada; no ve montos de ventas.
+- El admin, cuando quiere, cuenta el sobre y lo registra en **Turnos → ✏️ Contar** → la app
+  calcula la **diferencia**. El Z completo se puede reimprimir desde ahí.
+- Tras 5 intentos fallidos de PIN/contraseña hay una espera de 30 s. La sesión de admin se
+  **bloquea sola a los 10 min de inactividad**.
 
 ---
 
-## Configuración (pestaña Config)
+## La base de datos y los backups
 
-### Datos del negocio
-Nombre, dirección, CUIT y mensaje del pie → salen impresos en el ticket.
+- Archivo único SQLite en `app.getPath('userData')`:
+  - Windows: `C:\Users\<usuario>\AppData\Roaming\DEL PUEBLO Caja\delpueblo.db`
+  - Linux: `~/.config/DEL PUEBLO Caja/delpueblo.db`
+- **Sobrevive a las actualizaciones**; las migraciones de esquema corren solas al abrir.
+- **Backup automático diario** en `userData/backups/auto-YYYY-MM-DD.db` (conserva 30).
+- **Backup manual**: Config → Respaldo (consistente aun con la app abierta).
+- Diseño **sync-ready** (UUID, `synced_at`, fechas UTC) para una futura nube — no implementada.
+
+## Hardware
 
 ### Impresora (Xprinter 58 mm)
-- **Interfaz:** en Windows normalmente `printer:NOMBRE`, donde `NOMBRE` es el nombre exacto
-  con el que quedó instalada la impresora (Panel de control → Dispositivos e impresoras).
-  También admite `//localhost/NOMBRE` o una ruta USB.
-- **Ancho:** 58 mm ≈ **32 caracteres** (fuente A).
-- Impresión directa y silenciosa tras confirmar cada venta.
+En **Config → Impresora**: botón **Detectar** lista las impresoras del sistema (elegís y listo),
+atajos para USB directo / red, y **🧾 Imprimir prueba** para verificar sin hacer una venta.
+Ancho 58 mm ≈ **32 caracteres**. La impresión es directa y silenciosa.
 
 ### Balanza Systel (Croma 30 V2)
-- **Serie:** 9600 baudios, 8-N-1 (configurable). Confirmar en el menú de la balanza.
-- **Protocolos:**
-  - **`estable` (recomendado):** solicitud `0x05` (ENQ). Respuesta estable = `STX` + 6 ASCII
-    (`XX.XXX` kg) + `ETX` + XOR. Respuesta inestable = `0x11` (reintenta).
-  - **`continuo`:** solicitud `0x07`, trae el peso siempre + byte `e`/`i` (estable/inestable).
-  - **`torrey`** (`P`) y **`cas`** (`W`): respaldos de compatibilidad para Croma nuevos.
-- **Byte de solicitud, puerto COM, baudios y paridad** son editables.
-
-#### ⚠️ Modo diagnóstico (hacer esto ANTES de fijar el parser)
-El formato decimal exacto (kg vs g, cantidad de decimales) depende de cómo esté configurada
-la balanza puntual. En **Config → Balanza → Diagnóstico**:
-
-1. Elegí el puerto COM y guardá.
-2. Tocá **▶ Diagnóstico** y poné peso en la balanza.
-3. Mirá las **tramas crudas** (hex + ASCII) que aparecen en la consola negra.
-4. Verificá que el peso leído coincida con el visor. Ajustá **protocolo / byte de solicitud**
-   si hace falta, guardá y probá de nuevo.
-
-**Interpretación del peso (robusta):** si el número trae separador decimal se interpreta en
-**kilos** (×1000 = gramos); si es entero, ya son **gramos**.
-
-**Fallback manual siempre disponible:** si la balanza falla o no está, un teclado numérico en
-pantalla permite tipear los gramos. La caja nunca se traba por la balanza.
-
----
-
-## Uso (POS)
-
-- **Grilla** de tiles grandes con emoji + nombre + precio, coloreados por categoría, con
-  **tabs de categoría** para filtrar.
-- **Unidad:** tocar suma +1 (stepper −/+ en el carrito).
-- **Peso:** pide el peso a la balanza, se puede corregir a mano, calcula `precio_kg × g / 1000`.
-- **Ambos:** pregunta "¿por unidad o por peso?".
-- **Cobrar:** método de pago (efectivo / débito / crédito / QR / transferencia); en efectivo,
-  teclado para "recibido" y muestra el **vuelto**. Confirmar → guarda en SQLite → imprime ticket.
-- **Anular última venta:** marca la venta como `anulada` (no repone stock porque no hay stock).
-
-## Métricas
-
-Período **hoy / semana / mes / personalizado**. KPIs (total, tickets, **ticket promedio**),
-**evolución por día**, **comparativa mensual**, **top productos** (por $ y cantidad),
-**desglose por método de pago**, **listado de tickets** con detalle y **export CSV**.
+Serie 9600 8-N-1 (configurable). Protocolos: **`estable`** (0x05, recomendado), `continuo`
+(0x07), `torrey` (P) y `cas` (W) como respaldo. **Antes de fijar el parser**, usar
+**Config → Balanza → Diagnóstico**: muestra las tramas crudas (hex + ASCII) con peso en el
+plato para confirmar formato y decimales. Interpretación robusta: número con decimales = kg
+(×1000), entero = gramos. **Fallback manual siempre disponible** — la caja nunca se traba.
 
 ---
 
 ## Estructura
 
 ```
-/electron        # proceso main (Node)
-  main.ts        # ventana, IPC, CSP, backup/CSV
-  preload.ts     # API segura (contextBridge) → window.api
-  db.ts          # better-sqlite3: esquema, migraciones, queries, seed, métricas
-  balanza.ts     # serialport: pedirPeso, diagnóstico, parser configurable
-  impresora.ts   # node-thermal-printer: ticket ESC/POS 58mm
-  config.ts      # defaults y persistencia de negocio/impresora/balanza
-/shared
-  types.ts       # tipos compartidos main ↔ renderer
-/src             # React (renderer)
-  store/cartStore.ts
-  pages/         # PosPage, MetricasPage, ProductosPage, ConfigPage
-  components/pos, components/metricas
-electron-builder.yml
+/electron            # proceso main (Node)
+  main.ts            # ventana, IPC, CSP, backups, CSV
+  preload.ts         # API segura (contextBridge) → window.api
+  db.ts              # SQLite: esquema, migraciones, queries, métricas, backups
+  auth.ts            # roles, scrypt, rate-limit, sesión, recuperación
+  balanza.ts         # serialport: pedirPeso, diagnóstico, parser configurable
+  impresora.ts       # tickets de venta, prueba y cierre Z (ESC/POS 58mm)
+  config.ts          # negocio/ticket, impresora, balanza (tabla config)
+  updater.ts         # auto-update por GitHub Releases
+/shared/types.ts     # tipos compartidos main ↔ renderer
+/src                 # React (renderer)
+  store/             # cartStore, authStore
+  pages/             # PosPage, MetricasPage, ProductosPage, TurnosPage, ConfigPage
+  components/        # pos/, metricas/, turno/, auth/, config/
+/build/icon.png      # ícono de la app (usado por electron-builder)
+.github/workflows/release.yml   # CI: compila y publica Windows + Linux al taguear
 ```
 
-## Actualizaciones (auto-update por GitHub Releases)
-
-La app instalada se **actualiza sola**: al abrir (y cada 6 h) chequea GitHub Releases; si hay
-versión nueva la baja en segundo plano y avisa para instalarla al reiniciar. Es offline-first:
-sin internet no pasa nada, la caja sigue andando. Los datos (SQLite en userData) y la config no se
-tocan; las migraciones de esquema corren solas al abrir la versión nueva.
-
-**Publicar una versión nueva** (no hace falta Windows: compila un GitHub Action):
+## Publicar una versión (CI)
 
 ```bash
-# 1. Subí el número de versión
-npm version 1.1.0 --no-git-tag-version   # edita package.json
+npm version 1.1.0 --no-git-tag-version
 git commit -am "v1.1.0"
-# 2. Etiquetá y subí el tag
-git tag v1.1.0
-git push origin main --tags
+git tag v1.1.0 && git push origin main --tags
 ```
 
-El workflow `.github/workflows/release.yml` compila el instalador en `windows-latest` y publica la
-Release automáticamente. Las cajas instaladas se actualizan a esa versión.
+El workflow compila en `windows-latest` y `ubuntu-latest` y publica la Release. Las cajas
+instaladas se actualizan solas (el `.exe` y el AppImage; el `.deb` no se auto-actualiza).
 
-> **Importante:** para que el auto-update funcione sin credenciales, el repo `elpueblo-app`
-> debe ser **público**. Si es privado, electron-updater necesita un token para leer las Releases.
->
-> El **primer** instalador sale igual que cualquier release: creá el tag `v1.0.0`, dejá que el
-> Action lo publique, descargá el `.exe` de la Release e instalalo una vez en la PC. De ahí en
-> más las actualizaciones son automáticas.
+> El repo debe ser **público** para que el auto-update lea las Releases sin credenciales.
 
-### Cómo agregar cambios de esquema sin perder datos
-En `electron/db.ts`, la función `migrar()` corre en cada arranque. Para una tabla/columna nueva,
-agregá ahí un `ALTER TABLE ... ADD COLUMN` guardado (chequeando antes con `PRAGMA table_info`).
-Así las cajas ya instaladas migran solas al actualizar.
+### Cambios de esquema sin perder datos
+En `electron/db.ts`, `migrar()` corre en cada arranque: agregá ahí los `ALTER TABLE ...`
+condicionales (chequeando `PRAGMA table_info`) y las cajas instaladas migran solas.
 
-## Fase futura (documentada, NO implementada)
+## Nota de seguridad
 
-Sincronización a la nube: un proceso en segundo plano detecta internet y sube las ventas con
-`synced_at IS NULL` a un backend (Supabase/Postgres), marcándolas como sincronizadas. Panel web
-de solo-lectura para ver las métricas desde el celular. La base local no cambia y la caja sigue
-funcionando 100% offline aunque la nube no esté.
+Los roles controlan el acceso **por la interfaz** (y los canales IPC del main). Como la base
+es un archivo local sin cifrar, alguien con acceso al equipo podría abrir el `.db` con otro
+programa. Para el objetivo (que la empleada no vea números mientras opera) alcanza; cifrar la
+base (SQLCipher) sería el paso siguiente si hiciera falta.

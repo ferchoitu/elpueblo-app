@@ -83,23 +83,55 @@ export function setupAdmin(datos: SetupAdmin): { recoveryCode: string } {
   return { recoveryCode };
 }
 
+// ----- Límite de intentos (anti fuerza bruta del PIN/contraseña) -----
+
+const MAX_FALLOS = 5;
+const BLOQUEO_MS = 30_000;
+const fallos = new Map<string, { n: number; hasta: number }>();
+
+function chequearBloqueo(clave: string): void {
+  const f = fallos.get(clave);
+  if (f && f.n >= MAX_FALLOS && Date.now() < f.hasta) {
+    const seg = Math.ceil((f.hasta - Date.now()) / 1000);
+    throw new Error(`Demasiados intentos. Esperá ${seg} segundos.`);
+  }
+}
+
+function registrarFallo(clave: string): void {
+  const f = fallos.get(clave) ?? { n: 0, hasta: 0 };
+  f.n += 1;
+  if (f.n >= MAX_FALLOS) {
+    f.hasta = Date.now() + BLOQUEO_MS;
+    f.n = MAX_FALLOS; // tras el bloqueo, un fallo más re-bloquea
+  }
+  fallos.set(clave, f);
+}
+
 // ----- Login -----
 
 export function loginAdmin(usuario: string, password: string): Sesion {
+  const clave = `admin:${usuario.trim().toLowerCase()}`;
+  chequearBloqueo(clave);
   const u = db.obtenerUsuarioPorLogin(usuario.trim());
   if (!u || !verificarSecreto(password, u.pass_hash)) {
+    registrarFallo(clave);
     throw new Error('Usuario o contraseña incorrectos');
   }
+  fallos.delete(clave);
   const turno = db.turnoAbiertoDe(u.id);
   sesion = { usuario_id: u.id, nombre: u.nombre, rol: 'admin', turno_id: turno?.id ?? null };
   return sesion;
 }
 
 export function loginEmpleada(usuarioId: string, pin: string): Sesion {
+  const clave = `emp:${usuarioId}`;
+  chequearBloqueo(clave);
   const u = db.obtenerUsuarioRow(usuarioId);
   if (!u || u.rol !== 'empleada' || u.activo !== 1 || !verificarSecreto(pin, u.pass_hash)) {
+    registrarFallo(clave);
     throw new Error('PIN incorrecto');
   }
+  fallos.delete(clave);
   const turno = db.turnoAbiertoDe(u.id);
   sesion = { usuario_id: u.id, nombre: u.nombre, rol: 'empleada', turno_id: turno?.id ?? null };
   return sesion;
@@ -139,10 +171,14 @@ export function cambiarPasswordAdmin(passwordActual: string, nueva: string): voi
 // ----- Recuperación de contraseña de admin (offline) -----
 
 export function resetAdmin(usuario: string, recoveryCode: string, nuevaPassword: string): void {
+  const clave = `rec:${usuario.trim().toLowerCase()}`;
+  chequearBloqueo(clave);
   const guardado = getConfig<string>('recovery_hash');
   if (!verificarSecreto(recoveryCode.trim().toUpperCase(), guardado)) {
+    registrarFallo(clave);
     throw new Error('Código de recuperación incorrecto');
   }
+  fallos.delete(clave);
   const u = db.obtenerUsuarioPorLogin(usuario.trim());
   if (!u) throw new Error('No existe un admin con ese usuario');
   if (nuevaPassword.length < 4) throw new Error('La nueva contraseña debe tener al menos 4 caracteres');

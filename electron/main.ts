@@ -132,8 +132,19 @@ function registrarIPC() {
       // el admin puede anular la última venta global.
       const ultima = s.rol === 'admin' ? db.ultimaVenta() : db.ultimaVenta(s.turno_id);
       if (!ultima) return ok(null);
-      db.anularVenta(ultima.id);
+      db.anularVenta(ultima.id, s.nombre);
       return ok(ultima);
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  // Anular una venta puntual (sólo admin, desde el detalle del ticket).
+  ipcMain.handle('venta:anular', (_e, ventaId: string) => {
+    try {
+      auth.requireAdmin();
+      const s = auth.requireSesion();
+      db.anularVenta(ventaId, s.nombre);
+      return ok();
     } catch (e) {
       return fail(e);
     }
@@ -161,6 +172,32 @@ function registrarIPC() {
   // Impresión
   ipcMain.handle('ticket:imprimir', async (_e, venta: VentaConItems) => {
     try {
+      const r = await imprimirTicket(venta);
+      return r.ok ? ok() : fail(r.error);
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  // Reimprimir el último ticket de la sesión (empleada: su turno; admin: global).
+  ipcMain.handle('ticket:reimprimirUltimo', async () => {
+    try {
+      const s = auth.requireSesion();
+      const ultima = s.rol === 'admin' ? db.ultimaVenta() : db.ultimaVenta(s.turno_id);
+      if (!ultima) return fail('No hay ventas para reimprimir');
+      const venta = db.obtenerVenta(ultima.id);
+      if (!venta) return fail('Venta no encontrada');
+      const r = await imprimirTicket(venta);
+      return r.ok ? ok(venta.numero) : fail(r.error);
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  // Reimprimir cualquier ticket por id (sólo admin, desde Métricas).
+  ipcMain.handle('ticket:reimprimir', async (_e, ventaId: string) => {
+    try {
+      auth.requireAdmin();
+      const venta = db.obtenerVenta(ventaId);
+      if (!venta) return fail('Venta no encontrada');
       const r = await imprimirTicket(venta);
       return r.ok ? ok() : fail(r.error);
     } catch (e) {
@@ -317,14 +354,14 @@ function registrarIPC() {
   ipcMain.handle('config:hacerBackup', async () => {
     try {
       auth.requireAdmin();
-      const origen = db.dbPath();
       const { canceled, filePath } = await dialog.showSaveDialog(win!, {
         title: 'Guardar copia de la base de datos',
         defaultPath: `delpueblo-backup-${new Date().toISOString().slice(0, 10)}.db`,
         filters: [{ name: 'SQLite', extensions: ['db'] }],
       });
       if (canceled || !filePath) return ok('');
-      fs.copyFileSync(origen, filePath);
+      // Backup consistente en caliente (incluye el WAL con las ventas recientes).
+      await db.backupHacia(filePath);
       return ok(filePath);
     } catch (e) {
       return fail(e);
@@ -490,6 +527,11 @@ app.whenReady().then(() => {
   db.initDB();
   registrarIPC();
   createWindow();
+
+  // Backup automático diario (userData/backups, rota 30). Al abrir y cada 6 h
+  // por si la caja queda prendida varios días.
+  db.backupAutomatico();
+  setInterval(() => db.backupAutomatico(), 6 * 60 * 60 * 1000);
 
   // Auto-actualización (sólo en la app instalada).
   if (app.isPackaged) configurarAutoUpdate(() => win);

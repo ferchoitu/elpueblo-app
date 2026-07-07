@@ -11,6 +11,7 @@ interface CartState {
   total: () => number;
   agregarUnidad: (p: Producto) => void;
   agregarPeso: (p: Producto, gramos: number) => void;
+  agregarLibre: (nombre: string, monto: number) => void;
   incrementar: (key: string) => void;
   decrementar: (key: string) => void;
   eliminar: (key: string) => void;
@@ -75,6 +76,22 @@ export const useCart = create<CartState>((set, get) => ({
       unidad,
       precio_unitario_aplicado: precioKg, // $/kg
       subtotal: round2((precioKg * gramos) / 1000),
+    };
+    set((s) => ({ items: [...s.items, item] }));
+  },
+
+  // Venta de monto libre ("Varios"): sin producto asociado, importe tipeado a mano.
+  agregarLibre: (nombre, monto) => {
+    const item: CartItem = {
+      key: nextKey(),
+      emoji: '🧾',
+      producto_id: null,
+      nombre_producto: nombre.trim() || 'Varios',
+      tipo_venta_usado: 'unidad',
+      cantidad: 1,
+      unidad: 'u',
+      precio_unitario_aplicado: round2(monto),
+      subtotal: round2(monto),
     };
     set((s) => ({ items: [...s.items, item] }));
   },

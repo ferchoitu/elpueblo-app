@@ -139,6 +139,10 @@ function migrar(d: Database.Database): void {
   if (turnosCols.length && !turnosCols.includes('fondo_cierre')) {
     d.exec('ALTER TABLE turnos ADD COLUMN fondo_cierre REAL');
   }
+
+  // Auditoría de anulaciones (quién y cuándo).
+  if (!ventasCols.includes('anulada_por')) d.exec('ALTER TABLE ventas ADD COLUMN anulada_por TEXT');
+  if (!ventasCols.includes('anulada_at')) d.exec('ALTER TABLE ventas ADD COLUMN anulada_at TEXT');
 }
 
 export function initDB(): Database.Database {
@@ -150,9 +154,12 @@ export function initDB(): Database.Database {
   db.exec(SCHEMA);
   migrar(db);
 
-  // Semilla sólo si no hay productos aún.
-  const count = db.prepare('SELECT COUNT(*) AS n FROM productos').get() as { n: number };
-  if (count.n === 0) seed();
+  // Semilla de productos de prueba: SOLO en desarrollo. En la app instalada
+  // el negocio arranca con el catálogo vacío y carga sus productos reales.
+  if (!app.isPackaged) {
+    const count = db.prepare('SELECT COUNT(*) AS n FROM productos').get() as { n: number };
+    if (count.n === 0) seed();
+  }
 
   return db;
 }
@@ -291,12 +298,14 @@ export function crearVenta(
       estado: 'completada',
       turno_id: turnoId,
       usuario_id: usuarioId,
+      anulada_por: null,
+      anulada_at: null,
       synced_at: null, // NULL = pendiente de subir a la nube (fase futura)
     };
 
     db.prepare(
-      `INSERT INTO ventas (id, numero, fecha, total, metodo_pago, monto_recibido, vuelto, estado, turno_id, usuario_id, synced_at)
-       VALUES (@id, @numero, @fecha, @total, @metodo_pago, @monto_recibido, @vuelto, @estado, @turno_id, @usuario_id, @synced_at)`
+      `INSERT INTO ventas (id, numero, fecha, total, metodo_pago, monto_recibido, vuelto, estado, turno_id, usuario_id, anulada_por, anulada_at, synced_at)
+       VALUES (@id, @numero, @fecha, @total, @metodo_pago, @monto_recibido, @vuelto, @estado, @turno_id, @usuario_id, @anulada_por, @anulada_at, @synced_at)`
     ).run(venta);
 
     const insItem = db.prepare(
@@ -316,8 +325,30 @@ export function crearVenta(
   return tx(v);
 }
 
-export function anularVenta(id: string): void {
-  db.prepare("UPDATE ventas SET estado = 'anulada' WHERE id = ?").run(id);
+export function anularVenta(id: string, anuladaPor: string): void {
+  const venta = db.prepare('SELECT * FROM ventas WHERE id = ?').get(id) as Venta | undefined;
+  if (!venta) throw new Error('Venta no encontrada');
+  if (venta.estado === 'anulada') throw new Error('La venta ya está anulada');
+
+  db.prepare(
+    "UPDATE ventas SET estado = 'anulada', anulada_por = ?, anulada_at = ? WHERE id = ?"
+  ).run(anuladaPor, nowUTC(), id);
+
+  // Si la venta pertenecía a un turno YA CERRADO, recalculamos los snapshots del
+  // turno para que el arqueo del admin no quede desfasado.
+  if (venta.turno_id) {
+    const turno = obtenerTurno(venta.turno_id);
+    if (turno && turno.estado === 'cerrado') {
+      const res = resumenTurno(turno.id);
+      const esperado = res.total_efectivo;
+      const diferencia =
+        turno.efectivo_contado != null ? turno.efectivo_contado - esperado : null;
+      db.prepare(
+        `UPDATE turnos SET total_ventas=?, total_efectivo=?, cantidad_tickets=?,
+           esperado_efectivo=?, diferencia=? WHERE id=?`
+      ).run(res.total_ventas, res.total_efectivo, res.cantidad_tickets, esperado, diferencia, turno.id);
+    }
+  }
 }
 
 export function ultimaVenta(turnoId?: string | null): Venta | null {
@@ -754,6 +785,50 @@ export function exportarTurnosCSV(rango: RangoFechas): string {
     );
   }
   return filas.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Backups
+// ---------------------------------------------------------------------------
+
+/**
+ * Backup CONSISTENTE en caliente (API de better-sqlite3). A diferencia de copiar
+ * el archivo a mano, incluye lo que está en el WAL (las ventas más recientes).
+ */
+export async function backupHacia(destino: string): Promise<void> {
+  await db.backup(destino);
+}
+
+const fechaHoyLocal = () => {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+};
+
+/**
+ * Backup automático diario en userData/backups (auto-YYYY-MM-DD.db).
+ * Corre al abrir la app y cada tanto; si el de hoy ya existe, no hace nada.
+ * Rota: conserva los 30 más recientes.
+ */
+export async function backupAutomatico(): Promise<void> {
+  try {
+    const dir = path.join(app.getPath('userData'), 'backups');
+    fs.mkdirSync(dir, { recursive: true });
+    const dest = path.join(dir, `auto-${fechaHoyLocal()}.db`);
+    if (fs.existsSync(dest)) return;
+    await db.backup(dest);
+
+    const autos = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith('auto-') && f.endsWith('.db'))
+      .sort(); // el nombre es la fecha => orden cronológico
+    for (const viejo of autos.slice(0, Math.max(0, autos.length - 30))) {
+      fs.unlinkSync(path.join(dir, viejo));
+    }
+  } catch (e) {
+    console.error('[backup automático] falló:', (e as Error).message);
+  }
 }
 
 // ---------------------------------------------------------------------------

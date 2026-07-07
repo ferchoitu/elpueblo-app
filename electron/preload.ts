@@ -47,6 +47,8 @@ const api = {
       ipcRenderer.invoke('venta:crear', v),
     anularUltima: (): Promise<Resultado<Venta | null>> =>
       ipcRenderer.invoke('venta:anularUltima'),
+    anular: (ventaId: string): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('venta:anular', ventaId),
   },
   auth: {
     estadoInicial: (): Promise<EstadoInicial> => ipcRenderer.invoke('auth:estadoInicial'),
@@ -104,6 +106,10 @@ const api = {
   ticket: {
     imprimir: (venta: VentaConItems): Promise<Resultado<void>> =>
       ipcRenderer.invoke('ticket:imprimir', venta),
+    reimprimirUltimo: (): Promise<Resultado<number>> =>
+      ipcRenderer.invoke('ticket:reimprimirUltimo'),
+    reimprimir: (ventaId: string): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('ticket:reimprimir', ventaId),
   },
   metricas: {
     resumen: (rango: RangoFechas): Promise<MetricasResumen> =>
