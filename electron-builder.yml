@@ -3,10 +3,12 @@ productName: DEL PUEBLO Caja
 copyright: Copyright © 2026 DEL PUEBLO
 
 # Publicación de actualizaciones en GitHub Releases (auto-update).
+# releaseType: release => la Release se publica automáticamente (no queda en borrador).
 publish:
   provider: github
   owner: ferchoitu
   repo: elpueblo-app
+  releaseType: release
 
 directories:
   output: release
