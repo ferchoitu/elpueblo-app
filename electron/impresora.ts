@@ -132,7 +132,9 @@ export async function imprimirCierreZ(
     p.println(`Tickets:  ${turno.cantidad_tickets ?? 0}`);
     p.drawLine();
 
-    p.leftRight('Dejar de fondo', money(turno.fondo_inicial));
+    const fondoCierre = turno.fondo_cierre ?? turno.fondo_inicial;
+    p.leftRight('Fondo apertura', money(turno.fondo_inicial));
+    p.leftRight('Fondo en caja (cierre)', money(fondoCierre));
     p.leftRight('Retirado (excedente)', money(turno.efectivo_contado ?? 0));
 
     if (!opts.ciego) {
@@ -148,7 +150,7 @@ export async function imprimirCierreZ(
     } else {
       p.newLine();
       p.alignCenter();
-      p.println(`Dejá ${money(turno.fondo_inicial)} de fondo en la caja.`);
+      p.println(`Dejá ${money(fondoCierre)} de fondo en la caja.`);
       p.println('Guardá el excedente junto a este ticket.');
     }
 

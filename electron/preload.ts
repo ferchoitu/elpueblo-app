@@ -77,9 +77,10 @@ const api = {
     abrir: (fondoInicial: number): Promise<Resultado<{ id: string; numero: number }>> =>
       ipcRenderer.invoke('turno:abrir', fondoInicial),
     cerrar: (
-      efectivoContado: number
+      efectivoRetirado: number,
+      fondoCierre: number
     ): Promise<Resultado<{ numero: number; ticketImpreso: boolean; errorImpresion?: string }>> =>
-      ipcRenderer.invoke('turno:cerrar', efectivoContado),
+      ipcRenderer.invoke('turno:cerrar', efectivoRetirado, fondoCierre),
     listar: (rango: { desde: string; hasta: string }): Promise<Turno[]> =>
       ipcRenderer.invoke('turnos:listar', rango),
     reimprimirZ: (turnoId: string): Promise<Resultado<void>> =>

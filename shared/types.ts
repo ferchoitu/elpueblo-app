@@ -121,6 +121,7 @@ export interface Turno {
   apertura_at: string; // ISO UTC
   fondo_inicial: number;
   cierre_at: string | null;
+  fondo_cierre: number | null; // fondo que se deja en la caja al cerrar
   efectivo_contado: number | null;
   total_ventas: number | null; // snapshot al cerrar
   total_efectivo: number | null; // ventas efectivo del turno

@@ -8,38 +8,48 @@ interface Props {
 }
 
 /**
- * Cierre de caja "por retiro", a ciegas: el fondo inicial queda en la caja; el
- * empleado retira el excedente (las ventas) y lo carga. NO ve esperado ni
- * diferencia. Al confirmar se imprime el ticket Z y, si es empleada, se cierra la
- * sesión. El arqueo lo revisa el admin en "Turnos".
+ * Cierre de caja "por retiro", a ciegas y en 2 pasos:
+ *   1) el empleado marca el FONDO que deja en la caja (pre-cargado con lo que abrió);
+ *   2) marca el EXCEDENTE que retira (las ventas).
+ * NO ve esperado ni diferencia. Se imprime el ticket Z y, si es empleada, se cierra
+ * la sesión. El arqueo (y el fondo apertura/cierre) los revisa el admin.
  */
 export default function CerrarTurno({ onClose }: Props) {
   const { sesion, logout, refrescarSesion } = useAuth();
+  const [paso, setPaso] = useState<'fondo' | 'retiro'>('fondo');
+  const [fondoApertura, setFondoApertura] = useState<number | null>(null);
+  const [fondoStr, setFondoStr] = useState('');
   const [retiradoStr, setRetiradoStr] = useState('');
-  const [fondo, setFondo] = useState<number | null>(null);
   const [procesando, setProcesando] = useState(false);
   const [error, setError] = useState('');
-  const [hecho, setHecho] = useState<string>('');
+  const [hecho, setHecho] = useState('');
+
+  const fondo = parseFloat(fondoStr || '0') || 0;
   const retirado = parseFloat(retiradoStr || '0') || 0;
 
-  // Traemos el fondo inicial del turno para recordarle cuánto dejar en la caja.
+  // Traemos el fondo con el que se abrió y lo pre-cargamos como sugerencia.
   useEffect(() => {
-    window.api.turno.actual().then((t) => setFondo(t?.fondo_inicial ?? 0));
+    window.api.turno.actual().then((t) => {
+      const f = t?.fondo_inicial ?? 0;
+      setFondoApertura(f);
+      setFondoStr(String(Math.round(f)));
+    });
   }, []);
 
   async function confirmar() {
     setProcesando(true);
     setError('');
-    const res = await window.api.turno.cerrar(retirado);
+    const res = await window.api.turno.cerrar(retirado, fondo);
     setProcesando(false);
     if (!res.ok || !res.data) {
       setError(res.error ?? 'No se pudo cerrar el turno');
       return;
     }
-    const aviso = res.data.ticketImpreso
-      ? `✅ Turno #${res.data.numero} cerrado. Ticket impreso.`
-      : `✅ Turno #${res.data.numero} cerrado. ⚠️ No se imprimió: ${res.data.errorImpresion ?? ''}`;
-    setHecho(aviso);
+    setHecho(
+      res.data.ticketImpreso
+        ? `✅ Turno #${res.data.numero} cerrado. Ticket impreso.`
+        : `✅ Turno #${res.data.numero} cerrado. ⚠️ No se imprimió: ${res.data.errorImpresion ?? ''}`
+    );
   }
 
   async function terminar() {
@@ -59,19 +69,39 @@ export default function CerrarTurno({ onClose }: Props) {
               {sesion?.rol === 'empleada' ? 'Salir' : 'Aceptar'}
             </button>
           </>
-        ) : (
+        ) : paso === 'fondo' ? (
           <>
-            <h2 className="text-xl font-bold mb-1">Cerrar caja</h2>
-
-            {/* Recordatorio: dejar el fondo, retirar el excedente con el ticket Z */}
+            <h2 className="text-xl font-bold mb-1">Cerrar caja · Paso 1 de 2</h2>
             <div className="bg-amber-500/15 border border-amber-500/40 rounded-xl p-3 mb-4">
               <p className="text-sm text-amber-200">
-                Dejá{' '}
-                <b className="text-amber-100">
-                  {fondo != null ? money(fondo) : '…'}
-                </b>{' '}
-                de fondo en la caja (con lo que abriste el turno). Retirá el <b>excedente</b> (las
-                ventas) y guardalo junto al <b>ticket Z</b>. Ingresá cuánto retirás:
+                ¿Cuánto <b>fondo</b> dejás en la caja para el próximo turno? Sugerido: lo que abriste
+                {fondoApertura != null && <b className="text-amber-100"> ({money(fondoApertura)})</b>}.
+              </p>
+            </div>
+
+            <div className="bg-base-900 rounded-xl p-4 text-center mb-4">
+              <div className="text-xs text-slate-400">Fondo que dejás en la caja</div>
+              <div className="text-4xl font-black tabular-nums">{money(fondo)}</div>
+            </div>
+
+            <NumericKeypad value={fondoStr} onChange={setFondoStr} allowDecimal={false} />
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button onClick={onClose} className="btn-ghost py-4">
+                Cancelar
+              </button>
+              <button onClick={() => setPaso('retiro')} className="btn-primary py-4">
+                Siguiente →
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="text-xl font-bold mb-1">Cerrar caja · Paso 2 de 2</h2>
+            <div className="bg-amber-500/15 border border-amber-500/40 rounded-xl p-3 mb-4">
+              <p className="text-sm text-amber-200">
+                Dejaste <b className="text-amber-100">{money(fondo)}</b> de fondo. Ahora retirá el{' '}
+                <b>excedente</b> (las ventas) y guardalo junto al <b>ticket Z</b>. ¿Cuánto retirás?
               </p>
             </div>
 
@@ -85,8 +115,8 @@ export default function CerrarTurno({ onClose }: Props) {
             {error && <div className="text-red-400 text-sm mt-3">{error}</div>}
 
             <div className="grid grid-cols-2 gap-2 mt-4">
-              <button onClick={onClose} disabled={procesando} className="btn-ghost py-4">
-                Cancelar
+              <button onClick={() => setPaso('fondo')} disabled={procesando} className="btn-ghost py-4">
+                ← Volver
               </button>
               <button
                 onClick={confirmar}

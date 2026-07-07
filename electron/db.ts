@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS turnos (
   apertura_at       TEXT NOT NULL,
   fondo_inicial     REAL NOT NULL,
   cierre_at         TEXT,
+  fondo_cierre      REAL,
   efectivo_contado  REAL,
   total_ventas      REAL,
   total_efectivo    REAL,
@@ -132,6 +133,12 @@ function migrar(d: Database.Database): void {
   if (!ventasCols.includes('turno_id')) d.exec('ALTER TABLE ventas ADD COLUMN turno_id TEXT');
   if (!ventasCols.includes('usuario_id')) d.exec('ALTER TABLE ventas ADD COLUMN usuario_id TEXT');
   d.exec('CREATE INDEX IF NOT EXISTS idx_ventas_turno ON ventas(turno_id)');
+
+  // turnos.fondo_cierre puede faltar en bases previas.
+  const turnosCols = cols('turnos');
+  if (turnosCols.length && !turnosCols.includes('fondo_cierre')) {
+    d.exec('ALTER TABLE turnos ADD COLUMN fondo_cierre REAL');
+  }
 }
 
 export function initDB(): Database.Database {
@@ -433,6 +440,7 @@ export function abrirTurno(usuarioId: string, fondoInicial: number): Turno {
     apertura_at: nowUTC(),
     fondo_inicial: fondoInicial,
     cierre_at: null,
+    fondo_cierre: null,
     efectivo_contado: null,
     total_ventas: null,
     total_efectivo: null,
@@ -477,26 +485,31 @@ export function resumenTurno(turnoId: string): {
   return r;
 }
 
-export function cerrarTurno(turnoId: string, efectivoRetirado: number): Turno {
+export function cerrarTurno(
+  turnoId: string,
+  efectivoRetirado: number,
+  fondoCierre: number
+): Turno {
   const abierto = obtenerTurno(turnoId);
   if (!abierto) throw new Error('Turno no encontrado');
   if (abierto.estado === 'cerrado') throw new Error('El turno ya está cerrado');
 
   const res = resumenTurno(turnoId);
-  // Cierre "por retiro": el fondo inicial queda en la caja para el próximo turno.
-  // El empleado retira el excedente, que debería igualar las ventas en efectivo.
-  // La diferencia controla eso (esperado a retirar = ventas en efectivo).
+  // Cierre "por retiro": el fondo queda en la caja para el próximo turno (lo marca
+  // el empleado). El empleado retira el excedente, que debería igualar las ventas
+  // en efectivo. La diferencia controla eso (esperado a retirar = ventas efectivo).
   const esperado = res.total_efectivo;
   const diferencia = efectivoRetirado - esperado;
 
   db.prepare(
-    `UPDATE turnos SET cierre_at=@cierre_at, efectivo_contado=@efectivo_contado,
+    `UPDATE turnos SET cierre_at=@cierre_at, fondo_cierre=@fondo_cierre, efectivo_contado=@efectivo_contado,
        total_ventas=@total_ventas, total_efectivo=@total_efectivo, cantidad_tickets=@cantidad_tickets,
        esperado_efectivo=@esperado_efectivo, diferencia=@diferencia, estado='cerrado'
      WHERE id=@id`
   ).run({
     id: turnoId,
     cierre_at: nowUTC(),
+    fondo_cierre: fondoCierre,
     efectivo_contado: efectivoRetirado, // acá guardamos lo retirado (el excedente)
     total_ventas: res.total_ventas,
     total_efectivo: res.total_efectivo,
@@ -710,7 +723,7 @@ export function exportarCSV(rango: RangoFechas): string {
 export function exportarTurnosCSV(rango: RangoFechas): string {
   const turnos = listarTurnos(rango);
   const cols = [
-    'turno', 'empleada', 'apertura', 'cierre', 'estado', 'fondo_inicial',
+    'turno', 'empleada', 'apertura', 'cierre', 'estado', 'fondo_apertura', 'fondo_cierre',
     'cantidad_tickets', 'total_ventas', 'ventas_efectivo', 'esperado_a_retirar',
     'efectivo_retirado', 'diferencia',
   ];
@@ -724,6 +737,7 @@ export function exportarTurnosCSV(rango: RangoFechas): string {
         t.cierre_at ? `${fechaLocalSolo(t.cierre_at)} ${horaLocalSolo(t.cierre_at)}` : '',
         t.estado,
         t.fondo_inicial,
+        t.fondo_cierre ?? '',
         t.cantidad_tickets ?? '',
         t.total_ventas ?? '',
         t.total_efectivo ?? '',

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { MetricasResumen, VentaConItems, RangoFechas, DetalleItemVendido } from '@shared/types';
+import type { MetricasResumen, VentaConItems, RangoFechas, DetalleItemVendido, Turno } from '@shared/types';
 import { rangoDePreset, rangoPersonalizado, fechaHoraLocal, type PeriodoPreset } from '../lib/fechas';
 import { money, cantidadTexto } from '../lib/format';
 import KpiCards from '../components/metricas/KpiCards';
@@ -8,6 +8,7 @@ import SalesByHour from '../components/metricas/SalesByHour';
 import MonthlyCompare from '../components/metricas/MonthlyCompare';
 import { TopProducts, MetodosPago } from '../components/metricas/TopProducts';
 import DetalleArticulos from '../components/metricas/DetalleArticulos';
+import CajaAperturaCierre from '../components/metricas/CajaAperturaCierre';
 
 const PRESETS: { id: PeriodoPreset; label: string }[] = [
   { id: 'hoy', label: 'Hoy' },
@@ -24,6 +25,7 @@ export default function MetricasPage() {
   const [resumen, setResumen] = useState<MetricasResumen | null>(null);
   const [ventas, setVentas] = useState<VentaConItems[]>([]);
   const [items, setItems] = useState<DetalleItemVendido[]>([]);
+  const [turnos, setTurnos] = useState<Turno[]>([]);
   const [detalle, setDetalle] = useState<VentaConItems | null>(null);
 
   const rangoActual = useCallback((): RangoFechas => {
@@ -33,14 +35,16 @@ export default function MetricasPage() {
 
   const cargar = useCallback(async () => {
     const rango = rangoActual();
-    const [r, v, it] = await Promise.all([
+    const [r, v, it, tu] = await Promise.all([
       window.api.metricas.resumen(rango),
       window.api.ventas.listar(rango),
       window.api.ventas.itemsDetalle(rango),
+      window.api.turno.listar(rango),
     ]);
     setResumen(r);
     setVentas(v);
     setItems(it);
+    setTurnos(tu);
   }, [rangoActual]);
 
   useEffect(() => {
@@ -108,6 +112,9 @@ export default function MetricasPage() {
             <TopProducts data={resumen.topProductos} />
             <MetodosPago data={resumen.porMetodoPago} />
           </div>
+
+          {/* Caja: con cuánto fondo se abrió y cerró cada turno */}
+          <CajaAperturaCierre turnos={turnos} />
 
           {/* Desglose: qué se vendió, a qué hora y qué artículo */}
           <DetalleArticulos items={items} />
