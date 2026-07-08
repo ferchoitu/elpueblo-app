@@ -7,12 +7,14 @@ import * as balanza from './balanza';
 import * as auth from './auth';
 import { imprimirTicket, imprimirCierreZ, imprimirPrueba } from './impresora';
 import { configurarAutoUpdate } from './updater';
+import * as sync from './sync';
 import {
   getAppConfig,
   getNegocio,
   setNegocio,
   setImpresora,
   setBalanza,
+  setSyncConfig,
 } from './config';
 import type {
   NuevoProducto,
@@ -23,6 +25,7 @@ import type {
   ConfigNegocio,
   ConfigImpresora,
   ConfigBalanza,
+  ConfigSync,
   SetupAdmin,
 } from '../shared/types';
 
@@ -120,7 +123,9 @@ function registrarIPC() {
     try {
       const s = auth.requireSesion();
       if (!s.turno_id) throw new Error('Abrí un turno antes de cobrar');
-      return ok(db.crearVenta(v, s.turno_id, s.usuario_id));
+      const venta = db.crearVenta(v, s.turno_id, s.usuario_id);
+      sync.sincronizarPronto();
+      return ok(venta);
     } catch (e) {
       return fail(e);
     }
@@ -310,6 +315,26 @@ function registrarIPC() {
       return fail(e);
     }
   });
+
+  // Sincronización a la nube (admin)
+  ipcMain.handle('config:guardarSync', (_e, v: ConfigSync) => {
+    try {
+      auth.requireAdmin();
+      setSyncConfig(v);
+      if (v.habilitado) sync.iniciarSyncAuto();
+      return ok();
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('sync:ahora', async () => {
+    auth.requireAdmin();
+    return sync.sincronizar();
+  });
+  ipcMain.handle('sync:estado', () => {
+    auth.requireAdmin();
+    return sync.estadoSync();
+  });
   // Logo del ticket: elegir imagen, previsualizar (data URL) y quitar.
   const logoDataUrl = (ruta: string | null): string | null => {
     if (!ruta || !fs.existsSync(ruta)) return null;
@@ -473,6 +498,7 @@ function registrarIPC() {
       if (!s.turno_id) throw new Error('No hay turno abierto');
       const turno = db.cerrarTurno(s.turno_id);
       auth.setTurnoEnSesion(null);
+      sync.sincronizarPronto();
       // Ticket Z ciego si la cierra una empleada; completo si es admin.
       const imp = await imprimirCierreZ(turno, { ciego: s.rol === 'empleada' });
       // No devolvemos montos a la empleada (cierre a ciegas).
@@ -532,6 +558,9 @@ app.whenReady().then(() => {
   // por si la caja queda prendida varios días.
   db.backupAutomatico();
   setInterval(() => db.backupAutomatico(), 6 * 60 * 60 * 1000);
+
+  // Sincronización a la nube (si está configurada y habilitada).
+  if (getAppConfig().sync.habilitado) sync.iniciarSyncAuto();
 
   // Auto-actualización (sólo en la app instalada).
   if (app.isPackaged) configurarAutoUpdate(() => win);

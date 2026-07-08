@@ -1,5 +1,11 @@
 import { getConfig, setConfig } from './db';
-import type { AppConfig, ConfigNegocio, ConfigImpresora, ConfigBalanza } from '../shared/types';
+import type {
+  AppConfig,
+  ConfigNegocio,
+  ConfigImpresora,
+  ConfigBalanza,
+  ConfigSync,
+} from '../shared/types';
 
 // Valores por defecto. Se guardan/leen de la tabla `config` (key-value).
 
@@ -44,11 +50,20 @@ export function getBalanza(): ConfigBalanza {
   return getConfig<ConfigBalanza>('balanza') ?? defBalanza;
 }
 
+const defSync: ConfigSync = { url: '', token: '', habilitado: false };
+export function getSyncConfig(): ConfigSync {
+  return { ...defSync, ...(getConfig<Partial<ConfigSync>>('sync') ?? {}) };
+}
+export function setSyncConfig(v: ConfigSync) {
+  setConfig('sync', v);
+}
+
 export function getAppConfig(): AppConfig {
   return {
     negocio: getNegocio(),
     impresora: getImpresora(),
     balanza: getBalanza(),
+    sync: getSyncConfig(),
   };
 }
 

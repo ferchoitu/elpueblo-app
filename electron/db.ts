@@ -143,6 +143,17 @@ function migrar(d: Database.Database): void {
   // Auditoría de anulaciones (quién y cuándo).
   if (!ventasCols.includes('anulada_por')) d.exec('ALTER TABLE ventas ADD COLUMN anulada_por TEXT');
   if (!ventasCols.includes('anulada_at')) d.exec('ALTER TABLE ventas ADD COLUMN anulada_at TEXT');
+
+  // Sincronización a la nube: columna `synced_at` (NULL = pendiente de subir).
+  // CREATE TABLE IF NOT EXISTS no altera tablas ya existentes, así que las cajas
+  // ya instaladas necesitan este ALTER o cualquier venta/cierre rompería con
+  // "no such column: synced_at". Las filas viejas quedan NULL => se suben (backfill).
+  if (!ventasCols.includes('synced_at')) d.exec('ALTER TABLE ventas ADD COLUMN synced_at TEXT');
+  if (turnosCols.length && !turnosCols.includes('synced_at')) {
+    d.exec('ALTER TABLE turnos ADD COLUMN synced_at TEXT');
+  }
+  d.exec('CREATE INDEX IF NOT EXISTS idx_ventas_synced ON ventas(synced_at)');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_turnos_synced ON turnos(synced_at)');
 }
 
 export function initDB(): Database.Database {
@@ -331,7 +342,7 @@ export function anularVenta(id: string, anuladaPor: string): void {
   if (venta.estado === 'anulada') throw new Error('La venta ya está anulada');
 
   db.prepare(
-    "UPDATE ventas SET estado = 'anulada', anulada_por = ?, anulada_at = ? WHERE id = ?"
+    "UPDATE ventas SET estado = 'anulada', anulada_por = ?, anulada_at = ?, synced_at = NULL WHERE id = ?"
   ).run(anuladaPor, nowUTC(), id);
 
   // Si la venta pertenecía a un turno YA CERRADO, recalculamos los snapshots del
@@ -345,7 +356,7 @@ export function anularVenta(id: string, anuladaPor: string): void {
         turno.efectivo_contado != null ? turno.efectivo_contado - esperado : null;
       db.prepare(
         `UPDATE turnos SET total_ventas=?, total_efectivo=?, cantidad_tickets=?,
-           esperado_efectivo=?, diferencia=? WHERE id=?`
+           esperado_efectivo=?, diferencia=?, synced_at=NULL WHERE id=?`
       ).run(res.total_ventas, res.total_efectivo, res.cantidad_tickets, esperado, diferencia, turno.id);
     }
   }
@@ -528,7 +539,7 @@ export function cerrarTurno(turnoId: string): Turno {
   db.prepare(
     `UPDATE turnos SET cierre_at=@cierre_at, fondo_cierre=@fondo_cierre, efectivo_contado=NULL,
        total_ventas=@total_ventas, total_efectivo=@total_efectivo, cantidad_tickets=@cantidad_tickets,
-       esperado_efectivo=@esperado_efectivo, diferencia=NULL, estado='cerrado'
+       esperado_efectivo=@esperado_efectivo, diferencia=NULL, estado='cerrado', synced_at=NULL
      WHERE id=@id`
   ).run({
     id: turnoId,
@@ -550,12 +561,58 @@ export function registrarConteoTurno(turnoId: string, efectivoContado: number): 
   if (t.estado !== 'cerrado') throw new Error('El turno todavía está abierto');
   const esperado = t.esperado_efectivo ?? t.total_efectivo ?? 0;
   const diferencia = efectivoContado - esperado;
-  db.prepare('UPDATE turnos SET efectivo_contado = ?, diferencia = ? WHERE id = ?').run(
-    efectivoContado,
-    diferencia,
-    turnoId
-  );
+  db.prepare(
+    'UPDATE turnos SET efectivo_contado = ?, diferencia = ?, synced_at = NULL WHERE id = ?'
+  ).run(efectivoContado, diferencia, turnoId);
   return obtenerTurno(turnoId)!;
+}
+
+// ---------------------------------------------------------------------------
+// Sincronización a la nube (pendientes = synced_at IS NULL)
+// ---------------------------------------------------------------------------
+
+export function pendientesCount(): { ventas: number; turnos: number } {
+  const v = db.prepare('SELECT COUNT(*) AS n FROM ventas WHERE synced_at IS NULL').get() as { n: number };
+  const t = db.prepare('SELECT COUNT(*) AS n FROM turnos WHERE synced_at IS NULL').get() as { n: number };
+  return { ventas: v.n, turnos: t.n };
+}
+
+/** Ventas pendientes con sus ítems y el nombre de la empleada, en el shape de la nube. */
+export function ventasPendientes(limite = 300): any[] {
+  const ventas = db
+    .prepare(
+      `SELECT v.id, v.numero, v.fecha, v.total, v.metodo_pago, v.monto_recibido, v.vuelto,
+              v.estado, v.turno_id, v.anulada_por, v.anulada_at, u.nombre AS empleada
+       FROM ventas v LEFT JOIN usuarios u ON u.id = v.usuario_id
+       WHERE v.synced_at IS NULL ORDER BY v.fecha LIMIT ?`
+    )
+    .all(limite) as any[];
+  const getItems = db.prepare(
+    `SELECT id, nombre_producto AS producto_nombre, tipo_venta_usado, cantidad, unidad,
+            precio_unitario_aplicado AS precio_unitario, subtotal
+     FROM venta_items WHERE venta_id = ?`
+  );
+  return ventas.map((v) => ({ ...v, items: getItems.all(v.id) }));
+}
+
+export function turnosPendientes(limite = 300): any[] {
+  return db
+    .prepare(
+      `SELECT t.id, t.numero, t.apertura_at, t.fondo_inicial, t.cierre_at, t.fondo_cierre,
+              t.efectivo_contado, t.total_ventas, t.total_efectivo, t.cantidad_tickets,
+              t.esperado_efectivo, t.diferencia, t.estado, u.nombre AS empleada
+       FROM turnos t LEFT JOIN usuarios u ON u.id = t.usuario_id
+       WHERE t.synced_at IS NULL ORDER BY t.apertura_at LIMIT ?`
+    )
+    .all(limite) as any[];
+}
+
+export function marcarSincronizados(tabla: 'ventas' | 'turnos', ids: string[]): void {
+  if (!ids.length) return;
+  const now = nowUTC();
+  const upd = db.prepare(`UPDATE ${tabla} SET synced_at = ? WHERE id = ?`);
+  const tx = db.transaction((arr: string[]) => arr.forEach((id) => upd.run(now, id)));
+  tx(ids);
 }
 
 export function listarTurnos(rango: RangoFechas): Turno[] {

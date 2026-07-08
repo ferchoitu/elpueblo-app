@@ -23,6 +23,8 @@ import type {
   Turno,
   TurnoActualEmpleada,
   DetalleItemVendido,
+  ConfigSync,
+  EstadoSync,
 } from '../shared/types';
 
 // API segura expuesta al renderer. Todo pasa por IPC hacia el proceso main.
@@ -140,6 +142,13 @@ const api = {
     logoDataUrl: (): Promise<string | null> => ipcRenderer.invoke('config:logoDataUrl'),
     rutaBackup: (): Promise<Resultado<string>> => ipcRenderer.invoke('config:rutaBackup'),
     hacerBackup: (): Promise<Resultado<string>> => ipcRenderer.invoke('config:hacerBackup'),
+    guardarSync: (v: ConfigSync): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('config:guardarSync', v),
+  },
+  sync: {
+    ahora: (): Promise<{ ok: boolean; ventas?: number; turnos?: number; error?: string }> =>
+      ipcRenderer.invoke('sync:ahora'),
+    estado: (): Promise<EstadoSync> => ipcRenderer.invoke('sync:estado'),
   },
 };
 

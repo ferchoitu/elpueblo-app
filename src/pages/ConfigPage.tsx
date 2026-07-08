@@ -6,6 +6,8 @@ import type {
   ConfigBalanza,
   TramaDiagnostico,
   ProtocoloBalanza,
+  ConfigSync,
+  EstadoSync,
 } from '@shared/types';
 import { EmpleadasSection, PasswordSection } from '../components/config/UsuariosConfig';
 
@@ -17,20 +19,24 @@ export default function ConfigPage() {
   const [diagActivo, setDiagActivo] = useState(false);
   const [tramas, setTramas] = useState<TramaDiagnostico[]>([]);
   const [logo, setLogo] = useState<string | null>(null);
+  const [syncEstado, setSyncEstado] = useState<EstadoSync | null>(null);
+  const [sincronizando, setSincronizando] = useState(false);
   const [impresoras, setImpresoras] = useState<{ name: string; displayName: string; isDefault: boolean }[]>([]);
   const [probando, setProbando] = useState(false);
   const [resultadoPrueba, setResultadoPrueba] = useState<{ ok: boolean; msg: string } | null>(null);
   const unsubRef = useRef<null | (() => void)>(null);
 
   const cargar = useCallback(async () => {
-    const [c, p, l] = await Promise.all([
+    const [c, p, l, se] = await Promise.all([
       window.api.config.obtener(),
       window.api.balanza.listarPuertos(),
       window.api.config.logoDataUrl(),
+      window.api.sync.estado(),
     ]);
     setCfg(c);
     setPuertos(p);
     setLogo(l);
+    setSyncEstado(se);
   }, []);
 
   async function elegirLogo() {
@@ -96,6 +102,18 @@ export default function ConfigPage() {
     await window.api.config.guardarBalanza(v);
     flash('Balanza guardada');
   }
+  async function guardarSync(v: ConfigSync) {
+    await window.api.config.guardarSync(v);
+    flash('Sincronización guardada');
+    setSyncEstado(await window.api.sync.estado());
+  }
+  async function sincronizarAhora() {
+    setSincronizando(true);
+    const r = await window.api.sync.ahora();
+    setSincronizando(false);
+    flash(r.ok ? `☁️ Sincronizado (${r.ventas} ventas, ${r.turnos} turnos)` : `Error: ${r.error}`);
+    setSyncEstado(await window.api.sync.estado());
+  }
 
   async function toggleDiagnostico() {
     if (diagActivo) {
@@ -133,6 +151,8 @@ export default function ConfigPage() {
     setCfg({ ...cfg, impresora: { ...cfg.impresora, ...patch } });
   const setBal = (patch: Partial<ConfigBalanza>) =>
     setCfg({ ...cfg, balanza: { ...cfg.balanza, ...patch } });
+  const setSync = (patch: Partial<ConfigSync>) =>
+    setCfg({ ...cfg, sync: { ...cfg.sync, ...patch } });
 
   return (
     <div className="h-full overflow-y-auto p-6 max-w-3xl mx-auto space-y-5">
@@ -434,6 +454,69 @@ export default function ConfigPage() {
               ))
             )}
           </div>
+        </div>
+      </section>
+
+      {/* Sincronización a la nube */}
+      <section className="card p-5">
+        <h2 className="font-bold text-lg mb-1">☁️ Sincronización con la nube (dashboard remoto)</h2>
+        <p className="text-xs text-slate-500 mb-3">
+          Sube las ventas y cierres a la nube para verlos desde el dashboard web. Es offline-first:
+          si no hay internet, la caja sigue igual y sube lo pendiente cuando se reconecta.
+        </p>
+        <div className="grid grid-cols-1 gap-3">
+          <Field label="URL de sincronización">
+            <input
+              className="input"
+              value={cfg.sync.url}
+              onChange={(e) => setSync({ url: e.target.value })}
+              placeholder="https://xxxx.supabase.co/functions/v1/push"
+            />
+          </Field>
+          <Field label="Token del dispositivo">
+            <input
+              className="input font-mono"
+              value={cfg.sync.token}
+              onChange={(e) => setSync({ token: e.target.value })}
+              placeholder="pegá acá el token de esta caja"
+            />
+          </Field>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={cfg.sync.habilitado}
+              onChange={(e) => setSync({ habilitado: e.target.checked })}
+              className="w-5 h-5"
+            />
+            <span>Sincronización activada</span>
+          </label>
+        </div>
+
+        {syncEstado && (
+          <div className="bg-base-900 rounded-lg p-3 mt-3 text-sm">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Pendientes de subir</span>
+              <span className="tabular-nums">
+                {syncEstado.pendientesVentas} ventas · {syncEstado.pendientesTurnos} turnos
+              </span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Última sincronización</span>
+              <span>{syncEstado.ultimaSync ? new Date(syncEstado.ultimaSync).toLocaleString('es-AR') : '—'}</span>
+            </div>
+            {syncEstado.ultimoError && (
+              <div className="text-red-400 text-xs mt-1">Último error: {syncEstado.ultimoError}</div>
+            )}
+          </div>
+        )}
+
+        <div className="flex gap-2 mt-3">
+          <button onClick={() => guardarSync(cfg.sync)} className="btn-primary px-4 py-2">
+            Guardar
+          </button>
+          <button onClick={sincronizarAhora} disabled={sincronizando} className="btn-ghost px-4 py-2">
+            {sincronizando ? 'Sincronizando…' : '☁️ Sincronizar ahora'}
+          </button>
         </div>
       </section>
 

@@ -214,10 +214,25 @@ export interface ConfigImpresora {
   habilitada: boolean;
 }
 
+export interface ConfigSync {
+  url: string; // endpoint de la Edge Function push
+  token: string; // token del dispositivo
+  habilitado: boolean;
+}
+
 export interface AppConfig {
   negocio: ConfigNegocio;
   impresora: ConfigImpresora;
   balanza: ConfigBalanza;
+  sync: ConfigSync;
+}
+
+export interface EstadoSync {
+  habilitado: boolean;
+  pendientesVentas: number;
+  pendientesTurnos: number;
+  ultimaSync: string | null; // ISO local
+  ultimoError: string | null;
 }
 
 // ----- Métricas -----
