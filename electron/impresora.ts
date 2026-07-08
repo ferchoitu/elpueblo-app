@@ -18,16 +18,55 @@ function cantidadTexto(cantidad: number, unidad: string): string {
   return `x${cantidad}`;
 }
 
+// Driver nativo del spooler del sistema (Windows/CUPS). node-thermal-printer
+// solo arma el buffer ESC/POS; necesita este módulo para MANDAR los bytes a la
+// impresora instalada cuando la interfaz es "printer:NOMBRE". Sin él, la librería
+// tira "No driver set!". Se carga una sola vez y de forma perezosa para que un
+// fallo de carga no rompa el resto de la app (ej: build sin el binario nativo).
+let driverCache: object | null | undefined;
+function getPrinterDriver(): object | null {
+  if (driverCache !== undefined) return driverCache;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    driverCache = require('@grandchef/node-printer') as object;
+  } catch (e) {
+    driverCache = null;
+  }
+  return driverCache;
+}
+
 function buildPrinter() {
   const cfg = getImpresora();
+  // Solo la interfaz "printer:" (impresora instalada del sistema) necesita el
+  // driver nativo. tcp:// y rutas de archivo funcionan sin él.
+  const necesitaDriver = /^printer:/i.test(cfg.interfaz);
+  const driver = necesitaDriver ? getPrinterDriver() : undefined;
+  if (necesitaDriver && !driver) {
+    throw new Error(
+      'No se pudo cargar el módulo de impresión del sistema (@grandchef/node-printer). ' +
+        'Reinstalá la app o ejecutá "npm run rebuild".'
+    );
+  }
   return new ThermalPrinter({
     type: cfg.tipo === 'star' ? PrinterTypes.STAR : PrinterTypes.EPSON,
     interface: cfg.interfaz,
+    driver: driver ?? undefined,
     characterSet: CharacterSet.PC858_EURO,
     removeSpecialCharacters: false,
     width: cfg.ancho,
     options: { timeout: 4000 },
   });
+}
+
+// El driver del sistema hace `throw false` (no devuelve false) cuando no
+// encuentra la impresora por nombre. Lo normalizamos a un booleano para poder
+// dar un mensaje claro en vez de un error vacío.
+async function estaConectada(p: ThermalPrinter): Promise<boolean> {
+  try {
+    return await p.isPrinterConnected();
+  } catch {
+    return false;
+  }
 }
 
 export async function imprimirTicket(
@@ -104,7 +143,7 @@ export async function imprimirTicket(
     p.newLine();
     p.cut();
 
-    const okConn = await p.isPrinterConnected();
+    const okConn = await estaConectada(p);
     if (!okConn) {
       return {
         ok: false,
@@ -150,7 +189,7 @@ export async function imprimirPrueba(): Promise<{ ok: boolean; error?: string }>
     p.newLine();
     p.cut();
 
-    const okConn = await p.isPrinterConnected();
+    const okConn = await estaConectada(p);
     if (!okConn) {
       return { ok: false, error: `No se detecta la impresora en "${cfgImp.interfaz}".` };
     }
@@ -227,7 +266,7 @@ export async function imprimirCierreZ(
     p.newLine();
     p.cut();
 
-    const okConn = await p.isPrinterConnected();
+    const okConn = await estaConectada(p);
     if (!okConn) {
       return { ok: false, error: `No se detecta la impresora en "${cfgImp.interfaz}".` };
     }

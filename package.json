@@ -17,10 +17,12 @@
     "dist": "npm run build && electron-builder",
     "dist:win": "npm run build && electron-builder --win --x64",
     "dist:linux": "npm run build && electron-builder --linux",
-    "rebuild": "electron-rebuild -f -w better-sqlite3,serialport",
-    "postinstall": "electron-builder install-app-deps"
+    "rebuild": "electron-rebuild -f -w better-sqlite3,serialport,@grandchef/node-printer",
+    "postinstall": "patch-package && electron-builder install-app-deps"
   },
   "dependencies": {
+    "@grandchef/node-printer": "~0.8.0",
+    "@mapbox/node-pre-gyp": "^1.0.11",
     "better-sqlite3": "^11.8.1",
     "electron-updater": "^6.8.9",
     "node-thermal-printer": "^4.4.4",
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",
+    "patch-package": "^8.0.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.7",
     "@types/react": "^18.3.18",

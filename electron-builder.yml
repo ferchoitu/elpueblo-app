@@ -25,10 +25,13 @@ nodeGypRebuild: false
 npmRebuild: true
 
 # Módulos nativos van sin empaquetar en asar para que su .node cargue bien.
+# @grandchef/node-printer usa node-pre-gyp para localizar su binario en runtime,
+# por eso también debe quedar desempaquetado.
 asarUnpack:
   - "**/node_modules/better-sqlite3/**"
   - "**/node_modules/serialport/**"
   - "**/node_modules/@serialport/**"
+  - "**/node_modules/@grandchef/**"
 
 win:
   target:
