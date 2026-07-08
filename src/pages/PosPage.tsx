@@ -6,6 +6,7 @@ import CategoryTabs from '../components/pos/CategoryTabs';
 import ProductTile from '../components/pos/ProductTile';
 import Cart from '../components/pos/Cart';
 import WeightPrompt from '../components/pos/WeightPrompt';
+import QuantityPrompt from '../components/pos/QuantityPrompt';
 import CheckoutModal from '../components/pos/CheckoutModal';
 import NumericKeypad from '../components/pos/NumericKeypad';
 import AbrirTurno from '../components/turno/AbrirTurno';
@@ -17,6 +18,7 @@ export default function PosPage() {
   const [catActiva, setCatActiva] = useState<string | null>(null);
 
   const [pesoProducto, setPesoProducto] = useState<Producto | null>(null);
+  const [unidadProducto, setUnidadProducto] = useState<Producto | null>(null);
   const [ambosProducto, setAmbosProducto] = useState<Producto | null>(null);
   const [checkout, setCheckout] = useState(false);
   const [toast, setToast] = useState('');
@@ -24,7 +26,12 @@ export default function PosPage() {
   const [libre, setLibre] = useState(false); // modal de monto libre
   const [confirmAnular, setConfirmAnular] = useState(false);
 
-  const { agregarUnidad, agregarPeso, agregarLibre } = useCart();
+  const { items, agregarUnidades, agregarPeso, agregarLibre, incrementar, decrementar } = useCart();
+
+  // ¿Hay algún modal abierto? Si es así, el teclado del carrito no debe actuar
+  // (las teclas van al modal/keypad correspondiente).
+  const hayModal =
+    !!pesoProducto || !!unidadProducto || !!ambosProducto || checkout || libre || confirmAnular;
   const sesion = useAuth((s) => s.sesion);
 
   const cargar = useCallback(async () => {
@@ -60,13 +67,35 @@ export default function PosPage() {
 
   function elegirProducto(p: Producto) {
     if (p.tipo_venta === 'unidad') {
-      agregarUnidad(p);
+      setUnidadProducto(p); // pedir cantidad (teclado)
     } else if (p.tipo_venta === 'peso') {
       setPesoProducto(p);
     } else {
       setAmbosProducto(p); // preguntar unidad o peso
     }
   }
+
+  // Teclado del carrito: +/↑ suma y −/↓ resta al último ítem por unidad.
+  // Solo actúa si no hay ningún modal abierto ni foco en un campo de texto.
+  useEffect(() => {
+    if (hayModal) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+      const esMas = e.key === '+' || e.key === '=' || e.key === 'ArrowUp';
+      const esMenos = e.key === '-' || e.key === 'ArrowDown';
+      if (!esMas && !esMenos) return;
+      // Último ítem por unidad del carrito.
+      const ultimo = [...items].reverse().find((it) => it.tipo_venta_usado === 'unidad');
+      if (!ultimo) return;
+      if (esMas) incrementar(ultimo.key);
+      else decrementar(ultimo.key);
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [hayModal, items, incrementar, decrementar]);
 
   async function anularUltima() {
     setConfirmAnular(false);
@@ -153,6 +182,17 @@ export default function PosPage() {
         />
       )}
 
+      {unidadProducto && (
+        <QuantityPrompt
+          producto={unidadProducto}
+          onCancel={() => setUnidadProducto(null)}
+          onConfirm={(n) => {
+            agregarUnidades(unidadProducto, n);
+            setUnidadProducto(null);
+          }}
+        />
+      )}
+
       {ambosProducto && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-40 p-4">
           <div className="card p-6 w-full max-w-sm text-center">
@@ -162,7 +202,7 @@ export default function PosPage() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 onClick={() => {
-                  agregarUnidad(ambosProducto);
+                  setUnidadProducto(ambosProducto);
                   setAmbosProducto(null);
                 }}
                 className="btn-ghost py-6 text-lg"
