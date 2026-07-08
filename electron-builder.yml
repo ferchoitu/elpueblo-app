@@ -54,12 +54,3 @@ mac:
     - dmg
   category: public.app-category.business
 
-# Linux: AppImage (portable, corre en casi cualquier distro) + .deb.
-linux:
-  target:
-    - AppImage
-    - deb
-  category: Office
-  artifactName: "DEL-PUEBLO-Caja-${version}.${ext}"
-  # El acceso a la balanza (/dev/ttyUSB*) y a la impresora requiere que el
-  # usuario esté en los grupos 'dialout' y 'lp' (ver README).

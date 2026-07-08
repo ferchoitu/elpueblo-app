@@ -28,3 +28,20 @@ index d84b174..59729d4 100644
            ]
          }],
        ]
+diff --git a/node_modules/@grandchef/node-printer/lib/printer-binding.js b/node_modules/@grandchef/node-printer/lib/printer-binding.js
+index 337dc1c..84844d9 100644
+--- a/node_modules/@grandchef/node-printer/lib/printer-binding.js
++++ b/node_modules/@grandchef/node-printer/lib/printer-binding.js
+@@ -1,6 +1,6 @@
+-const path = require('path');
+-const binary = require('@mapbox/node-pre-gyp');
+-const binding_path = binary.find(path.resolve(path.join(__dirname, '../package.json')));
+-const binding = require(binding_path);
+-
+-module.exports = exports = binding;
++// Parcheado (patch-package): cargamos el binario nativo directamente en vez de
++// usar @mapbox/node-pre-gyp para ubicarlo. Evita depender de node-pre-gyp en
++// runtime (falla al resolver rutas dentro del asar de Electron) y elimina el
++// node-gyp viejo que arrastraba. El binario queda en ./node_printer.node por el
++// paso action_after_build del binding.gyp (module_path = "./lib/").
++module.exports = exports = require('./node_printer.node');
