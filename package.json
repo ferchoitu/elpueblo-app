@@ -1,6 +1,6 @@
 {
   "name": "delpueblo-caja",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Caja registradora local para panadería (offline). Electron + React + SQLite + balanza Systel + impresora térmica Xprinter 58mm.",
   "author": {
     "name": "DEL PUEBLO",
