@@ -262,7 +262,12 @@ function MontoLibreModal({
           <div className="text-xs text-slate-400">Importe</div>
           <div className="text-4xl font-black tabular-nums">{money(monto)}</div>
         </div>
-        <NumericKeypad value={montoStr} onChange={setMontoStr} allowDecimal={false} />
+        <NumericKeypad
+          value={montoStr}
+          onChange={setMontoStr}
+          allowDecimal={false}
+          onEnter={() => monto > 0 && onConfirm(nombre, monto)}
+        />
         <div className="grid grid-cols-2 gap-2 mt-4">
           <button onClick={onCancel} className="btn-ghost py-3">
             Cancelar

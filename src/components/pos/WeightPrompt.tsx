@@ -63,7 +63,12 @@ export default function WeightPrompt({ producto, onConfirm, onCancel }: Props) {
         </button>
 
         <div className="text-xs text-slate-400 mb-1">O ingresá los gramos a mano:</div>
-        <NumericKeypad value={gramosStr} onChange={setGramosStr} allowDecimal={false} />
+        <NumericKeypad
+          value={gramosStr}
+          onChange={setGramosStr}
+          allowDecimal={false}
+          onEnter={() => gramos > 0 && onConfirm(gramos)}
+        />
 
         <div className="grid grid-cols-2 gap-2 mt-4">
           <button onClick={onCancel} className="btn-ghost py-3">
