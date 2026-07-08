@@ -1,5 +1,9 @@
 import { ThermalPrinter, PrinterTypes, CharacterSet } from 'node-thermal-printer';
 import fs from 'node:fs';
+import os from 'node:os';
+import net from 'node:net';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
 import type { VentaConItems, Turno } from '../shared/types';
 import { getImpresora, getNegocio } from './config';
 
@@ -18,39 +22,16 @@ function cantidadTexto(cantidad: number, unidad: string): string {
   return `x${cantidad}`;
 }
 
-// Driver nativo del spooler del sistema (Windows/CUPS). node-thermal-printer
-// solo arma el buffer ESC/POS; necesita este módulo para MANDAR los bytes a la
-// impresora instalada cuando la interfaz es "printer:NOMBRE". Sin él, la librería
-// tira "No driver set!". Se carga una sola vez y de forma perezosa para que un
-// fallo de carga no rompa el resto de la app (ej: build sin el binario nativo).
-let driverCache: object | null | undefined;
-function getPrinterDriver(): object | null {
-  if (driverCache !== undefined) return driverCache;
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    driverCache = require('@grandchef/node-printer') as object;
-  } catch (e) {
-    driverCache = null;
-  }
-  return driverCache;
-}
-
+// node-thermal-printer se usa SOLO para armar el buffer ESC/POS (es JS puro).
+// El envío a la impresora lo hacemos nosotros (ver enviarBuffer), así evitamos
+// depender de un módulo nativo del spooler que hay que compilar en cada plataforma.
+// La interfaz que le pasamos es un marcador de tipo File: nunca llamamos execute(),
+// solo getBuffer(), así que no toca el disco ni necesita driver.
 function buildPrinter() {
   const cfg = getImpresora();
-  // Solo la interfaz "printer:" (impresora instalada del sistema) necesita el
-  // driver nativo. tcp:// y rutas de archivo funcionan sin él.
-  const necesitaDriver = /^printer:/i.test(cfg.interfaz);
-  const driver = necesitaDriver ? getPrinterDriver() : undefined;
-  if (necesitaDriver && !driver) {
-    throw new Error(
-      'No se pudo cargar el módulo de impresión del sistema (@grandchef/node-printer). ' +
-        'Reinstalá la app o ejecutá "npm run rebuild".'
-    );
-  }
   return new ThermalPrinter({
     type: cfg.tipo === 'star' ? PrinterTypes.STAR : PrinterTypes.EPSON,
-    interface: cfg.interfaz,
-    driver: driver ?? undefined,
+    interface: 'buffer', // marcador: solo usamos getBuffer(), nunca execute()
     characterSet: CharacterSet.PC858_EURO,
     removeSpecialCharacters: false,
     width: cfg.ancho,
@@ -58,15 +39,133 @@ function buildPrinter() {
   });
 }
 
-// El driver del sistema hace `throw false` (no devuelve false) cuando no
-// encuentra la impresora por nombre. Lo normalizamos a un booleano para poder
-// dar un mensaje claro en vez de un error vacío.
-async function estaConectada(p: ThermalPrinter): Promise<boolean> {
-  try {
-    return await p.isPrinterConnected();
-  } catch {
-    return false;
+// Manda los bytes ESC/POS ya armados a la impresora según la interfaz configurada:
+//   - "printer:NOMBRE"   -> impresora instalada del sistema (Windows: spooler RAW
+//                           vía PowerShell/winspool; Mac/Linux: CUPS `lp -o raw`).
+//   - "tcp://host:puerto" -> impresora de red (socket crudo, puerto 9100 por defecto).
+//   - otra cosa          -> se trata como ruta de dispositivo/archivo (ej: /dev/usb/lp0).
+async function enviarBuffer(
+  interfaz: string,
+  p: ThermalPrinter
+): Promise<{ ok: boolean; error?: string }> {
+  const buf = p.getBuffer();
+  const iface = interfaz.trim();
+
+  const printerMatch = /^printer:(.+)$/i.exec(iface);
+  if (printerMatch) {
+    return enviarAImpresoraSistema(printerMatch[1].trim(), buf);
   }
+
+  const tcpMatch = /^tcp:\/\/([^/:]+)(?::(\d+))?/i.exec(iface);
+  if (tcpMatch) {
+    return enviarPorSocket(tcpMatch[1], Number(tcpMatch[2] ?? 9100), buf);
+  }
+
+  // Ruta de dispositivo/archivo.
+  try {
+    await fs.promises.writeFile(iface, buf);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: `No se pudo escribir en "${iface}": ${(e as Error).message}` };
+  }
+}
+
+// Impresora de red: abrir socket, mandar los bytes, cerrar.
+function enviarPorSocket(host: string, puerto: number, buf: Buffer): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const sock = net.connect({ host, port: puerto });
+    sock.setTimeout(5000);
+    sock.on('connect', () => sock.end(buf));
+    sock.on('close', () => resolve({ ok: true }));
+    sock.on('timeout', () => {
+      sock.destroy();
+      resolve({ ok: false, error: `Tiempo de espera agotado conectando a ${host}:${puerto}.` });
+    });
+    sock.on('error', (e) => resolve({ ok: false, error: `No se pudo conectar a ${host}:${puerto}: ${e.message}` }));
+  });
+}
+
+// Impresora instalada del sistema: manda bytes RAW al spooler.
+async function enviarAImpresoraSistema(nombre: string, buf: Buffer): Promise<{ ok: boolean; error?: string }> {
+  const tmp = path.join(os.tmpdir(), `ticket-${Date.now()}-${Math.random().toString(36).slice(2)}.bin`);
+  await fs.promises.writeFile(tmp, buf);
+  try {
+    return process.platform === 'win32'
+      ? await enviarWindows(nombre, tmp)
+      : await enviarCups(nombre, tmp);
+  } finally {
+    fs.promises.unlink(tmp).catch(() => {});
+  }
+}
+
+// Windows: PowerShell + winspool (WritePrinter) manda los bytes crudos al spooler,
+// sin depender de ningún módulo nativo de Node. El nombre de la impresora y la ruta
+// del archivo van por variables de entorno para evitar inyección en el script.
+function enviarWindows(nombre: string, archivo: string): Promise<{ ok: boolean; error?: string }> {
+  const script = `
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class DpRaw {
+  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]
+  public class DOCINFOW {
+    [MarshalAs(UnmanagedType.LPWStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPWStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPWStr)] public string pDatatype;
+  }
+  [DllImport("winspool.Drv", EntryPoint="OpenPrinterW", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool OpenPrinter(string src, out IntPtr hPrinter, IntPtr pd);
+  [DllImport("winspool.Drv", EntryPoint="ClosePrinter", SetLastError=true)] public static extern bool ClosePrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", EntryPoint="StartDocPrinterW", SetLastError=true, CharSet=CharSet.Unicode)] public static extern bool StartDocPrinter(IntPtr hPrinter, int level, [In] DOCINFOW di);
+  [DllImport("winspool.Drv", EntryPoint="EndDocPrinter", SetLastError=true)] public static extern bool EndDocPrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", EntryPoint="StartPagePrinter", SetLastError=true)] public static extern bool StartPagePrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", EntryPoint="EndPagePrinter", SetLastError=true)] public static extern bool EndPagePrinter(IntPtr hPrinter);
+  [DllImport("winspool.Drv", EntryPoint="WritePrinter", SetLastError=true)] public static extern bool WritePrinter(IntPtr hPrinter, byte[] pBytes, int dwCount, out int dwWritten);
+  public static void Send(string printerName, byte[] bytes) {
+    IntPtr h;
+    if (!OpenPrinter(printerName, out h, IntPtr.Zero)) throw new Exception("No se pudo abrir la impresora '" + printerName + "' (error " + Marshal.GetLastWin32Error() + ")");
+    try {
+      DOCINFOW di = new DOCINFOW(); di.pDocName = "Ticket DEL PUEBLO"; di.pDatatype = "RAW";
+      if (!StartDocPrinter(h, 1, di)) throw new Exception("StartDocPrinter fallo (" + Marshal.GetLastWin32Error() + ")");
+      try {
+        StartPagePrinter(h);
+        int written = 0;
+        if (!WritePrinter(h, bytes, bytes.Length, out written)) throw new Exception("WritePrinter fallo (" + Marshal.GetLastWin32Error() + ")");
+        EndPagePrinter(h);
+      } finally { EndDocPrinter(h); }
+    } finally { ClosePrinter(h); }
+  }
+}
+'@
+[DpRaw]::Send($env:DP_PRINTER, [System.IO.File]::ReadAllBytes($env:DP_FILE))
+`;
+  const b64 = Buffer.from(script, 'utf16le').toString('base64');
+  return new Promise((resolve) => {
+    const ps = spawn(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', b64],
+      { env: { ...process.env, DP_PRINTER: nombre, DP_FILE: archivo } }
+    );
+    let err = '';
+    ps.stderr.on('data', (d) => (err += d.toString()));
+    ps.on('error', (e) => resolve({ ok: false, error: `No se pudo ejecutar PowerShell: ${e.message}` }));
+    ps.on('close', (code) => {
+      if (code === 0) return resolve({ ok: true });
+      const limpio = err.replace(/\s+/g, ' ').trim().slice(0, 300);
+      resolve({ ok: false, error: limpio || `PowerShell terminó con código ${code}.` });
+    });
+  });
+}
+
+// Mac/Linux (desarrollo): CUPS con datatype RAW.
+function enviarCups(nombre: string, archivo: string): Promise<{ ok: boolean; error?: string }> {
+  return new Promise((resolve) => {
+    const lp = spawn('lp', ['-d', nombre, '-o', 'raw', archivo]);
+    let err = '';
+    lp.stderr.on('data', (d) => (err += d.toString()));
+    lp.on('error', (e) => resolve({ ok: false, error: `No se pudo ejecutar lp: ${e.message}` }));
+    lp.on('close', (code) => (code === 0 ? resolve({ ok: true }) : resolve({ ok: false, error: err.trim() || `lp terminó con código ${code}.` })));
+  });
 }
 
 export async function imprimirTicket(
@@ -143,15 +242,7 @@ export async function imprimirTicket(
     p.newLine();
     p.cut();
 
-    const okConn = await estaConectada(p);
-    if (!okConn) {
-      return {
-        ok: false,
-        error: `No se detecta la impresora en "${cfgImp.interfaz}". Revisá la configuración.`,
-      };
-    }
-    await p.execute();
-    return { ok: true };
+    return await enviarBuffer(cfgImp.interfaz, p);
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -189,12 +280,7 @@ export async function imprimirPrueba(): Promise<{ ok: boolean; error?: string }>
     p.newLine();
     p.cut();
 
-    const okConn = await estaConectada(p);
-    if (!okConn) {
-      return { ok: false, error: `No se detecta la impresora en "${cfgImp.interfaz}".` };
-    }
-    await p.execute();
-    return { ok: true };
+    return await enviarBuffer(cfgImp.interfaz, p);
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -266,12 +352,7 @@ export async function imprimirCierreZ(
     p.newLine();
     p.cut();
 
-    const okConn = await estaConectada(p);
-    if (!okConn) {
-      return { ok: false, error: `No se detecta la impresora en "${cfgImp.interfaz}".` };
-    }
-    await p.execute();
-    return { ok: true };
+    return await enviarBuffer(cfgImp.interfaz, p);
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
