@@ -34,7 +34,7 @@ export interface TurnoRow {
   diferencia: number | null;
   estado: string | null;
 }
-export interface Device {
+export interface Caja {
   id: string;
   nombre: string | null;
 }
@@ -45,42 +45,45 @@ export interface DatosDashboard {
   topItems: TopItem[];
   porPago: PorPago[];
   turnos: TurnoRow[];
-  devices: Device[];
+  cajas: Caja[];
 }
 
-const args = (desde: string, hasta: string, device: string | null) => ({
+const args = (desde: string, hasta: string, caja: string | null) => ({
   p_desde: desde,
   p_hasta: hasta,
-  p_device: device,
+  p_caja: caja,
 });
 
 export async function cargarDatos(
   desde: string,
   hasta: string,
-  device: string | null
+  caja: string | null
 ): Promise<DatosDashboard> {
   const sb = supabaseAdmin();
-  const a = args(desde, hasta, device);
+  const a = args(desde, hasta, caja);
 
-  const [resumen, porDia, topItems, porPago, turnos, devices] = await Promise.all([
+  let turnosQuery = sb
+    .from('turnos')
+    .select(
+      'id, numero, empleada, apertura_at, cierre_at, total_ventas, total_efectivo, efectivo_contado, diferencia, estado'
+    )
+    .gte('apertura_at', desde)
+    .lt('apertura_at', hasta)
+    .order('apertura_at', { ascending: false })
+    .limit(200);
+  if (caja) turnosQuery = turnosQuery.eq('caja_id', caja);
+
+  const [resumen, porDia, topItems, porPago, turnos, cajas] = await Promise.all([
     sb.rpc('dash_resumen', a),
     sb.rpc('dash_por_dia', a),
     sb.rpc('dash_top_items', a),
     sb.rpc('dash_por_pago', a),
-    sb
-      .from('turnos')
-      .select(
-        'id, numero, empleada, apertura_at, cierre_at, total_ventas, total_efectivo, efectivo_contado, diferencia, estado'
-      )
-      .gte('apertura_at', desde)
-      .lt('apertura_at', hasta)
-      .order('apertura_at', { ascending: false })
-      .limit(200),
-    sb.from('devices').select('id, nombre').order('nombre'),
+    turnosQuery,
+    sb.from('cajas').select('id, nombre').order('nombre'),
   ]);
 
   const err =
-    resumen.error || porDia.error || topItems.error || porPago.error || turnos.error || devices.error;
+    resumen.error || porDia.error || topItems.error || porPago.error || turnos.error || cajas.error;
   if (err) throw new Error(err.message);
 
   const r = (resumen.data?.[0] as Resumen) ?? { ventas: 0, total: 0, ticket_promedio: 0 };
@@ -91,6 +94,6 @@ export async function cargarDatos(
     topItems: (topItems.data as TopItem[]) ?? [],
     porPago: (porPago.data as PorPago[]) ?? [],
     turnos: (turnos.data as TurnoRow[]) ?? [],
-    devices: (devices.data as Device[]) ?? [],
+    cajas: (cajas.data as Caja[]) ?? [],
   };
 }

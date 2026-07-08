@@ -18,13 +18,13 @@ export default async function Page({
   searchParams: { [key: string]: string | string[] | undefined };
 }) {
   const periodo = (one(searchParams.periodo) as Periodo) || 'mes';
-  const device = one(searchParams.device) || null;
+  const caja = one(searchParams.caja) || null;
   const rango = rangoDe(periodo, one(searchParams.d1), one(searchParams.d2));
 
   let datos = null;
   let error: string | null = null;
   try {
-    datos = await cargarDatos(rango.desde, rango.hasta, device);
+    datos = await cargarDatos(rango.desde, rango.hasta, caja);
   } catch (e) {
     error = (e as Error).message;
   }
@@ -39,7 +39,7 @@ export default async function Page({
         <LogoutButton />
       </header>
 
-      <Filtros devices={datos?.devices ?? []} />
+      <Filtros cajas={datos?.cajas ?? []} />
 
       {error ? (
         <div className="card p-6 border-red-500/40">

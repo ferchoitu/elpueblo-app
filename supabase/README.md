@@ -3,60 +3,51 @@
 La caja sube ventas y cierres a Supabase con la Edge Function `push`. Es la mitad
 "servidor" de la sync; la mitad "caja" está en `electron/sync.ts` + Config → ☁️.
 
-> **Nada de esto está desplegado todavía.** Son los archivos listos para que lo
-> subas vos cuando quieras (necesita tu proyecto de Supabase y decisiones tuyas).
+## Estado: DESPLEGADO ✅
 
-## 1. Crear/elegir el proyecto y aplicar el esquema
+Proyecto **`delpueblo-caja`** (`duzzunmryafyvssgjkux`, región sa-east-1):
 
-Con la [CLI de Supabase](https://supabase.com/docs/guides/cli):
+- ✅ Esquema aplicado (`cajas`, `dispositivos`, `turnos`, `ventas`, `venta_items`) — ver `migrations/0001_sync_schema.sql`.
+- ✅ Funciones del dashboard aplicadas — `migrations/0002_dashboard_rpc.sql`.
+- ✅ Edge Function `push` desplegada (`--no-verify-jwt`) — `functions/push/index.ts`.
+- ✅ 1 caja + 1 dispositivo con token creados.
+- ✅ Camino de subida probado end-to-end (una venta de prueba subió y se borró).
 
-```bash
-supabase link --project-ref <TU_PROJECT_REF>
-supabase db push            # aplica supabase/migrations/0001_sync_schema.sql
-```
+**URL del push:** `https://duzzunmryafyvssgjkux.supabase.co/functions/v1/push`
 
-(O pegá el SQL de `migrations/0001_sync_schema.sql` en el SQL Editor del dashboard.)
+## Modelo
 
-## 2. Desplegar la Edge Function
+Dos niveles: `cajas` (el negocio) y `dispositivos` (cada caja física, con su
+`token`). Los datos cuelgan de `caja_id`. La función `push` valida el
+`x-device-token`, resuelve el `caja_id` del dispositivo y hace UPSERT idempotente
+por id (el mismo UUID de la caja local). Subir dos veces no duplica.
 
-```bash
-supabase functions deploy push --no-verify-jwt
-```
+## Configurar una caja
 
-`--no-verify-jwt` es a propósito: la función valida el **token del dispositivo**
-(`x-device-token`) por su cuenta, no un JWT de Supabase. Las variables
-`SUPABASE_URL` y `SUPABASE_SERVICE_ROLE_KEY` las inyecta Supabase sola.
+En la app: **Config → ☁️ Sincronización**:
+- **URL**: `https://duzzunmryafyvssgjkux.supabase.co/functions/v1/push`
+- **Token**: el `token` del dispositivo (tabla `dispositivos`).
+- Tildar **activada** → Guardar → **Sincronizar ahora**.
 
-La URL queda: `https://<PROJECT_REF>.supabase.co/functions/v1/push`
-
-## 3. Dar de alta una caja (device) y su token
-
-Generá un token al azar y registralo. En el SQL Editor:
+## Alta de otra caja/dispositivo
 
 ```sql
-insert into devices (token, nombre, negocio)
-values (encode(gen_random_bytes(24), 'hex'), 'Caja mostrador', 'DEL PUEBLO')
+-- una caja (negocio)
+insert into cajas (nombre) values ('Sucursal centro') returning id;
+-- un dispositivo con token para esa caja
+insert into dispositivos (caja_id, nombre, token)
+values ('<caja_id>', 'Caja mostrador', encode(gen_random_bytes(24), 'hex'))
 returning token;
 ```
 
-Copiá el `token` devuelto.
+## Volver a aplicar / cambios
 
-## 4. Configurar la caja
+Las migraciones son idempotentes (`create table if not exists`,
+`create or replace function`). Con la CLI: `supabase db push`. Para la función:
+`supabase functions deploy push --no-verify-jwt`.
 
-En la app: **Config → ☁️ Sincronización**:
-- **URL**: `https://<PROJECT_REF>.supabase.co/functions/v1/push`
-- **Token**: el token del paso 3
-- Tildar **Sincronización activada** → Guardar → **Sincronizar ahora**.
+## Pendiente (cuando se quiera)
 
-La caja sube automáticamente al arrancar, cada 60 s y tras cada venta/cierre. Es
-offline-first e idempotente (subir dos veces no duplica). Las cajas ya instaladas
-suben también su historial viejo (backfill) la primera vez.
-
-## Pendiente (cuando se arme el dashboard)
-
-- **Lectura**: hoy las tablas tienen RLS activado **sin políticas de SELECT**, así
-  que solo la Edge Function (service role) escribe y nadie lee con la anon key.
-  Falta agregar políticas para que el dashboard (usuario autenticado) lea los
-  datos de sus dispositivos.
-- **Multi-caja / negocio**: `devices` ya separa por dispositivo; falta el modelo
-  de "negocio" que agrupe varias cajas y el vínculo con el usuario del dashboard.
+- **Lectura del dashboard**: hoy lee con la service role (saltea RLS). Las tablas
+  tienen RLS activado sin políticas de SELECT. Si en el futuro el dashboard leyera
+  con la anon key o con usuarios, habría que agregar políticas por caja/usuario.

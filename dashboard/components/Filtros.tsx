@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import type { Device } from '../lib/queries';
+import type { Caja } from '../lib/queries';
 
 const PERIODOS: { id: string; label: string }[] = [
   { id: 'hoy', label: 'Hoy' },
@@ -11,11 +11,11 @@ const PERIODOS: { id: string; label: string }[] = [
   { id: 'custom', label: 'Personalizado' },
 ];
 
-export default function Filtros({ devices }: { devices: Device[] }) {
+export default function Filtros({ cajas }: { cajas: Caja[] }) {
   const router = useRouter();
   const sp = useSearchParams();
   const periodo = sp.get('periodo') ?? 'mes';
-  const device = sp.get('device') ?? '';
+  const caja = sp.get('caja') ?? '';
   const d1 = sp.get('d1') ?? '';
   const d2 = sp.get('d2') ?? '';
 
@@ -62,12 +62,12 @@ export default function Filtros({ devices }: { devices: Device[] }) {
         </div>
       )}
 
-      {devices.length > 1 && (
-        <select value={device} onChange={(e) => set({ device: e.target.value })} className="input py-1.5 text-sm">
+      {cajas.length > 1 && (
+        <select value={caja} onChange={(e) => set({ caja: e.target.value })} className="input py-1.5 text-sm">
           <option value="">Todas las cajas</option>
-          {devices.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.nombre ?? d.id.slice(0, 8)}
+          {cajas.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.nombre ?? c.id.slice(0, 8)}
             </option>
           ))}
         </select>
