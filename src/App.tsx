@@ -23,6 +23,20 @@ export default function App() {
   const { cargando, sesion, necesitaSetup, init, logout } = useAuth();
   const [tab, setTab] = useState<Tab>('pos');
   const [cerrando, setCerrando] = useState(false);
+  const [aviso, setAviso] = useState('');
+
+  // Una empleada con turno abierto NO puede salir sin cerrar la caja: si no, el
+  // turno queda abierto y sin contabilizar. Al apretar "Salir" la mandamos al
+  // cierre de caja en vez de cerrar la sesión.
+  function intentarSalir() {
+    if (sesion?.rol === 'empleada' && sesion?.turno_id) {
+      setAviso('Primero tenés que cerrar la caja para poder salir.');
+      setCerrando(true);
+      setTimeout(() => setAviso(''), 5000);
+      return;
+    }
+    logout();
+  }
 
   useEffect(() => {
     init();
@@ -91,7 +105,7 @@ export default function App() {
             <div className="font-semibold text-sm">{sesion.nombre}</div>
             <div className="text-xs text-slate-400">{esAdmin ? 'Administrador' : 'Empleada'}</div>
           </div>
-          <button onClick={() => logout()} className="btn-ghost px-3 py-2 text-sm" title="Cerrar sesión">
+          <button onClick={intentarSalir} className="btn-ghost px-3 py-2 text-sm" title="Cerrar sesión">
             ⏻ Salir
           </button>
         </div>
@@ -106,6 +120,12 @@ export default function App() {
       </main>
 
       {cerrando && <CerrarTurno onClose={() => setCerrando(false)} />}
+
+      {aviso && (
+        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-amber-600 text-white px-5 py-3 rounded-xl shadow-xl text-sm font-semibold">
+          {aviso}
+        </div>
+      )}
     </div>
   );
 }
