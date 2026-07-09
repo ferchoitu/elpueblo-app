@@ -150,6 +150,13 @@ const api = {
       ipcRenderer.invoke('sync:ahora'),
     estado: (): Promise<EstadoSync> => ipcRenderer.invoke('sync:estado'),
   },
+  // El main avisa cuando se intentó cerrar la app con una empleada con turno
+  // abierto: hay que forzar el cierre de caja antes de poder salir.
+  onForzarCierreCaja: (cb: () => void): (() => void) => {
+    const listener = () => cb();
+    ipcRenderer.on('forzar-cierre-caja', listener);
+    return () => ipcRenderer.off('forzar-cierre-caja', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('api', api);

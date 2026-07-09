@@ -42,6 +42,16 @@ export default function App() {
     init();
   }, [init]);
 
+  // Si se intenta cerrar la app con una empleada con turno abierto, el main lo
+  // bloquea y nos avisa: abrimos el cierre de caja (sí o sí tiene que cerrarla).
+  useEffect(() => {
+    return window.api.onForzarCierreCaja(() => {
+      setAviso('Cerrá la caja para poder salir. El turno tiene que quedar cerrado.');
+      setCerrando(true);
+      setTimeout(() => setAviso(''), 5000);
+    });
+  }, []);
+
   // Auto-bloqueo del ADMIN por inactividad: si se aleja del mostrador logueado,
   // a los 10 minutos sin tocar nada se cierra la sesión (la empleada no ve sus datos).
   const esAdminSesion = sesion?.rol === 'admin';

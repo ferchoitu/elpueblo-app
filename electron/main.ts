@@ -60,6 +60,18 @@ function createWindow() {
   } else {
     win.loadFile(path.join(DIST, 'index.html'));
   }
+
+  // Una empleada con turno abierto NO puede cerrar la app dejando la caja sin
+  // cerrar: el turno quedaría abierto y sin contabilizar. Interceptamos el cierre
+  // de la ventana y la mandamos al cierre de caja. Una vez que cierra (y se
+  // desloguea), la sesión queda sin turno y la app se puede cerrar normal.
+  win.on('close', (e) => {
+    const s = auth.getSesion();
+    if (s?.rol === 'empleada' && s.turno_id) {
+      e.preventDefault();
+      win?.webContents.send('forzar-cierre-caja');
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------
