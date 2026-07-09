@@ -55,6 +55,18 @@ function abrirPuerto(c: ConfigBalanza): Promise<SerialPort> {
         if (err) return reject(err);
         port = p;
         portKey = keyOf(c);
+        // Sin listener de 'error', un fallo del adaptador USB-serie (desconexión,
+        // suspensión USB, ruido eléctrico) se vuelve uncaughtException y CIERRA
+        // la app entera. Lo capturamos: se descarta el puerto y la próxima
+        // lectura lo reabre (o cae al ingreso manual del peso).
+        p.on('error', (e) => {
+          console.error('[balanza] error del puerto:', e.message);
+          if (port === p) {
+            port = null;
+            portKey = '';
+          }
+          if (p.isOpen) p.close(() => {});
+        });
         p.on('close', () => {
           if (port === p) {
             port = null;

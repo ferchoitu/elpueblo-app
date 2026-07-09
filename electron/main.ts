@@ -38,6 +38,24 @@ const PRELOAD = path.join(__dirnameLocal, 'preload.mjs');
 
 let win: BrowserWindow | null = null;
 
+// ---------------------------------------------------------------------------
+// Red de seguridad: la caja NUNCA debe cerrarse sola en pleno uso. Cualquier
+// excepción no manejada del proceso main (ej: un 'error' del puerto serie sin
+// listener) mataría la app entera; acá se registra en userData/errores.log y
+// la app sigue andando. El log sirve para diagnosticar el próximo incidente.
+// ---------------------------------------------------------------------------
+function logCritico(tipo: string, err: unknown): void {
+  try {
+    const linea = `[${new Date().toISOString()}] ${tipo}: ${(err as Error)?.stack ?? String(err)}\n`;
+    fs.appendFileSync(path.join(app.getPath('userData'), 'errores.log'), linea);
+  } catch {
+    /* el log nunca debe tirar la app */
+  }
+  console.error(`[${tipo}]`, err);
+}
+process.on('uncaughtException', (err) => logCritico('uncaughtException', err));
+process.on('unhandledRejection', (razon) => logCritico('unhandledRejection', razon));
+
 function createWindow() {
   win = new BrowserWindow({
     width: 1280,
@@ -60,6 +78,13 @@ function createWindow() {
   } else {
     win.loadFile(path.join(DIST, 'index.html'));
   }
+
+  // Si el proceso de la interfaz muere (crash/quedarse sin memoria), la ventana
+  // quedaría en blanco: lo registramos y recargamos para que la caja vuelva sola.
+  win.webContents.on('render-process-gone', (_e, det) => {
+    logCritico('render-process-gone', new Error(`${det.reason} (exitCode ${det.exitCode})`));
+    if (det.reason !== 'clean-exit') win?.webContents.reload();
+  });
 
   // Una empleada con turno abierto NO puede cerrar la app dejando la caja sin
   // cerrar: el turno quedaría abierto y sin contabilizar. Interceptamos el cierre
