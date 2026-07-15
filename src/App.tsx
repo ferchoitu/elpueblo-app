@@ -14,7 +14,7 @@ type Tab = 'pos' | 'metricas' | 'productos' | 'turnos' | 'config';
 const TABS: { id: Tab; label: string; emoji: string; soloAdmin: boolean }[] = [
   { id: 'pos', label: 'Caja', emoji: '🧾', soloAdmin: false },
   { id: 'metricas', label: 'Métricas', emoji: '📊', soloAdmin: true },
-  { id: 'productos', label: 'Productos', emoji: '🥐', soloAdmin: true },
+  { id: 'productos', label: 'Productos', emoji: '🥐', soloAdmin: false },
   { id: 'turnos', label: 'Turnos', emoji: '📅', soloAdmin: true },
   { id: 'config', label: 'Config', emoji: '⚙️', soloAdmin: true },
 ];
@@ -124,7 +124,7 @@ export default function App() {
       <main className="flex-1 min-h-0">
         {tabActual === 'pos' && <PosPage />}
         {tabActual === 'metricas' && esAdmin && <MetricasPage />}
-        {tabActual === 'productos' && esAdmin && <ProductosPage />}
+        {tabActual === 'productos' && <ProductosPage />}
         {tabActual === 'turnos' && esAdmin && <TurnosPage />}
         {tabActual === 'config' && esAdmin && <ConfigPage />}
       </main>
