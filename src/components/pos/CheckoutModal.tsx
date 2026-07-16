@@ -29,7 +29,7 @@ export default function CheckoutModal({ onClose }: Props) {
   const vuelto = Math.max(0, recibido - totalNum);
   const efectivoInsuf = metodo === 'efectivo' && recibido < totalNum;
 
-  async function confirmar() {
+  async function confirmar(imprimir: boolean) {
     if (!metodo) return;
     setProcesando(true);
     setError('');
@@ -49,16 +49,17 @@ export default function CheckoutModal({ onClose }: Props) {
       return;
     }
 
-    // Imprimir ticket (no bloquea el cierre de la venta si la impresora falla).
-    const imp = await window.api.ticket.imprimir(res.data);
+    // Ticket opcional: para ahorrar papel se puede cobrar sin imprimir.
+    // Si se imprime, la impresora no bloquea el cierre de la venta si falla.
+    let mensaje = `✅ Venta #${res.data.numero} registrada`;
+    if (imprimir) {
+      const imp = await window.api.ticket.imprimir(res.data);
+      if (!imp.ok) mensaje += ` — ⚠️ no se imprimió: ${imp.error}`;
+    }
 
     limpiar();
     setProcesando(false);
-    onClose(
-      imp.ok
-        ? `✅ Venta #${res.data.numero} registrada`
-        : `✅ Venta #${res.data.numero} registrada — ⚠️ no se imprimió: ${imp.error}`
-    );
+    onClose(mensaje);
   }
 
   return (
@@ -120,18 +121,25 @@ export default function CheckoutModal({ onClose }: Props) {
 
         {error && <div className="text-red-400 text-sm mb-2">{error}</div>}
 
-        <div className="grid grid-cols-2 gap-2">
-          <button onClick={() => onClose()} disabled={procesando} className="btn-ghost py-4">
-            Cancelar
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <button
+            onClick={() => confirmar(false)}
+            disabled={!metodo || efectivoInsuf || procesando}
+            className="btn-ghost py-4 text-lg font-semibold"
+          >
+            {procesando ? 'Procesando…' : 'Sin ticket'}
           </button>
           <button
-            onClick={confirmar}
+            onClick={() => confirmar(true)}
             disabled={!metodo || efectivoInsuf || procesando}
             className="btn-primary py-4 text-lg"
           >
-            {procesando ? 'Procesando…' : 'Confirmar e imprimir'}
+            {procesando ? 'Procesando…' : '🧾 Imprimir ticket'}
           </button>
         </div>
+        <button onClick={() => onClose()} disabled={procesando} className="btn-ghost py-3 w-full text-sm">
+          Cancelar
+        </button>
       </div>
     </div>
   );
