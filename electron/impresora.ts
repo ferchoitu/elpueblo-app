@@ -4,7 +4,7 @@ import os from 'node:os';
 import net from 'node:net';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import type { VentaConItems, Turno } from '../shared/types';
+import type { VentaConItems, Turno, PedidoConItems, CopiaTicketPedido } from '../shared/types';
 import { getImpresora, getNegocio } from './config';
 
 // ===========================================================================
@@ -313,7 +313,7 @@ export async function imprimirCierreZ(
 
     p.alignLeft();
     p.println(`Turno N: ${turno.numero}`);
-    p.println(`Empleada: ${turno.usuario_nombre ?? ''}`);
+    p.println(`Atendió: ${turno.usuario_nombre ?? ''}`);
     p.println(`Apertura: ${hora(turno.apertura_at)}`);
     p.println(`Cierre:   ${hora(turno.cierre_at)}`);
     p.println(`Tickets:  ${turno.cantidad_tickets ?? 0}`);
@@ -349,6 +349,128 @@ export async function imprimirCierreZ(
     p.drawLine();
     p.alignCenter();
     p.println('Firma: ______________________');
+    p.newLine();
+    p.cut();
+
+    return await enviarBuffer(cfgImp.interfaz, p);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+// ===========================================================================
+// Ticket de PEDIDO. Dos copias: la del CLIENTE (comprobante de la seña) y la del
+// LOCAL (para armar el pedido). Las dos llevan el detalle completo.
+// ===========================================================================
+
+const METODO_TXT: Record<string, string> = {
+  efectivo: 'efectivo',
+  debito: 'debito',
+  credito: 'credito',
+  qr: 'QR',
+  transferencia: 'transf.',
+};
+
+function fechaEntregaTexto(fecha: string, hora: string | null): string {
+  const d = new Date(`${fecha}T00:00:00`);
+  const dia = d.toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+  return hora ? `${dia} ${hora} hs` : dia;
+}
+
+export async function imprimirPedido(
+  pedido: PedidoConItems,
+  copia: CopiaTicketPedido
+): Promise<{ ok: boolean; error?: string }> {
+  const cfgImp = getImpresora();
+  if (!cfgImp.habilitada) return { ok: false, error: 'Impresora deshabilitada en configuración.' };
+
+  const neg = getNegocio();
+  const p = buildPrinter();
+
+  try {
+    p.alignCenter();
+    if (copia === 'cliente' && neg.logoPath && fs.existsSync(neg.logoPath)) {
+      try {
+        await p.printImage(neg.logoPath);
+      } catch {
+        /* sin logo, seguimos */
+      }
+    }
+    p.bold(true);
+    p.println(neg.nombre);
+    p.bold(false);
+    if (copia === 'cliente' && neg.direccion) p.println(neg.direccion);
+    p.drawLine();
+    p.bold(true);
+    p.setTextDoubleHeight();
+    p.println(`PEDIDO N ${pedido.numero}`);
+    p.setTextNormal();
+    p.bold(false);
+    p.println(copia === 'cliente' ? '- COPIA CLIENTE -' : '- COPIA LOCAL -');
+    if (pedido.estado !== 'pendiente') {
+      p.bold(true);
+      p.println(pedido.estado === 'entregado' ? '*** ENTREGADO ***' : '*** CANCELADO ***');
+      p.bold(false);
+    }
+    p.drawLine();
+
+    p.alignLeft();
+    p.println(`Cliente: ${pedido.cliente_nombre}`);
+    p.println(`Tel: ${pedido.cliente_telefono}`);
+    if (pedido.cliente_direccion) p.println(`Dir: ${pedido.cliente_direccion}`);
+    p.bold(true);
+    p.println(`Entrega: ${fechaEntregaTexto(pedido.fecha_entrega, pedido.hora_entrega)}`);
+    p.bold(false);
+    p.drawLine();
+
+    for (const it of pedido.items) {
+      p.println(it.nombre_producto);
+      p.leftRight(`  ${cantidadTexto(it.cantidad, it.unidad)}`, money(it.subtotal));
+    }
+    p.drawLine();
+
+    if (pedido.notas) {
+      p.bold(true);
+      p.println('Notas:');
+      p.bold(false);
+      p.println(pedido.notas);
+      p.drawLine();
+    }
+
+    p.bold(true);
+    p.leftRight('TOTAL', money(pedido.total));
+    p.bold(false);
+    for (const pago of pedido.pagos) {
+      const dia = new Date(pago.fecha).toLocaleDateString('es-AR', { day: '2-digit', month: '2-digit' });
+      p.leftRight(`Pagado ${dia} (${METODO_TXT[pago.metodo_pago] ?? pago.metodo_pago})`, money(pago.monto));
+    }
+    p.alignRight();
+    p.bold(true);
+    p.setTextDoubleHeight();
+    p.println(pedido.saldo > 0 ? `SALDO ${money(pedido.saldo)}` : 'PAGADO');
+    p.setTextNormal();
+    p.bold(false);
+    p.alignLeft();
+
+    if (copia === 'cliente' && pedido.saldo > 0 && neg.alias && neg.alias.trim()) {
+      p.drawLine();
+      p.alignCenter();
+      p.println('Transferencias - Alias:');
+      p.bold(true);
+      p.println(neg.alias.trim());
+      p.bold(false);
+      p.alignLeft();
+    }
+
+    p.drawLine();
+    p.println(`Tomado: ${new Date(pedido.created_at).toLocaleString('es-AR')}`);
+    if (pedido.usuario_nombre) p.println(`Por: ${pedido.usuario_nombre}`);
+    if (copia === 'cliente') {
+      p.alignCenter();
+      p.newLine();
+      p.println('Presente este ticket al retirar.');
+      p.println(neg.mensajePie || '¡Gracias!');
+    }
     p.newLine();
     p.cut();
 

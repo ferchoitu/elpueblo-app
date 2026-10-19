@@ -111,7 +111,7 @@ export default function ConfigPage() {
     setSincronizando(true);
     const r = await window.api.sync.ahora();
     setSincronizando(false);
-    flash(r.ok ? `☁️ Sincronizado (${r.ventas} ventas, ${r.turnos} turnos)` : `Error: ${r.error}`);
+    flash(r.ok ? `☁️ Sincronizado (${r.ventas} ventas, ${r.turnos} turnos, ${r.pedidos ?? 0} pedidos)` : `Error: ${r.error}`);
     setSyncEstado(await window.api.sync.estado());
   }
 
@@ -497,7 +497,7 @@ export default function ConfigPage() {
             <div className="flex justify-between">
               <span className="text-slate-400">Pendientes de subir</span>
               <span className="tabular-nums">
-                {syncEstado.pendientesVentas} ventas · {syncEstado.pendientesTurnos} turnos
+                {syncEstado.pendientesVentas} ventas · {syncEstado.pendientesTurnos} turnos · {syncEstado.pendientesPedidos} pedidos · {syncEstado.pendientesReparto} reparto
               </span>
             </div>
             <div className="flex justify-between">

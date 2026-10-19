@@ -15,6 +15,26 @@ Proyecto **`delpueblo-caja`** (`duzzunmryafyvssgjkux`, región sa-east-1):
 
 **URL del push:** `https://duzzunmryafyvssgjkux.supabase.co/functions/v1/push`
 
+## Pedidos (migración 0004) — APLICADA 2026-10-19 (push v2)
+
+- Tablas `pedidos` y `pedido_items`, y columna `ventas.pedido_id` (seña y saldo
+  son ventas normales atadas al pedido).
+- Métricas: `dash_pedidos_resumen`, `dash_pedidos_por_mes`, `dash_pedidos_top_items`
+  (período = cuándo se tomó el pedido; "cobrado" = ventas no anuladas del pedido).
+- **Orden de despliegue:** 1) aplicar `migrations/0004_pedidos.sql`,
+  2) desplegar `push`, 3) recién ahí publicar la versión de la caja. Si la caja
+  nueva sube antes de la migración, el upsert de ventas falla por `pedido_id`
+  (la caja reintenta sola, pero no sube nada hasta que esté la columna).
+
+## Reparto (migración 0005) — PENDIENTE DE APLICAR
+
+- Tablas `repartidores`, `reparto_clientes`, `reparto_liquidaciones`, `reparto_items`,
+  `reparto_cobros`. Va por fuera de la caja del local (no son ventas).
+- Métricas: `dash_reparto_resumen`, `dash_reparto_por_mes`, `dash_reparto_por_repartidor`.
+- Orden: 1) aplicar 0005, 2) desplegar `push`. La caja solo marca el reparto como
+  subido si `push` responde la clave `reparto`, así que una caja nueva contra una
+  función vieja no pierde datos: los reintenta.
+
 ## Modelo
 
 Dos niveles: `cajas` (el negocio) y `dispositivos` (cada caja física, con su

@@ -18,14 +18,14 @@ export default function SetupWizard() {
     if (password !== password2) return setError('Las contraseñas no coinciden');
 
     const res = await window.api.auth.setupAdmin({ nombre, usuario, password });
-    if (!res.ok || !res.data) return setError(res.error ?? 'No se pudo crear el administrador');
+    if (!res.ok || !res.data) return setError(res.error ?? 'No se pudo crear la cuenta de administración');
     setRecoveryCode(res.data.recoveryCode);
   }
 
   if (recoveryCode) {
     return (
       <Centrado>
-        <h1 className="text-2xl font-bold mb-2">✅ Administrador creado</h1>
+        <h1 className="text-2xl font-bold mb-2">✅ Cuenta de administración creada</h1>
         <p className="text-slate-400 mb-4">
           Guardá este <b>código de recuperación</b> en un lugar seguro. Es la única forma de
           resetear la contraseña si te la olvidás. <b>No se vuelve a mostrar.</b>
@@ -42,8 +42,8 @@ export default function SetupWizard() {
 
   return (
     <Centrado>
-      <h1 className="text-2xl font-bold mb-1">Bienvenido 👋</h1>
-      <p className="text-slate-400 mb-5">Creá la cuenta del administrador para empezar.</p>
+      <h1 className="text-2xl font-bold mb-1">¡Hola! 👋</h1>
+      <p className="text-slate-400 mb-5">Creá la cuenta de administración para empezar.</p>
 
       <label className="block text-sm text-slate-400 mb-1">Tu nombre</label>
       <input className="input mb-3" value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej: Fermín" />
@@ -60,7 +60,7 @@ export default function SetupWizard() {
       {error && <div className="text-red-400 text-sm mb-3">{error}</div>}
 
       <button onClick={crear} className="btn-primary w-full py-4 text-lg">
-        Crear administrador
+        Crear cuenta de administración
       </button>
     </Centrado>
   );

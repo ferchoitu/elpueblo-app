@@ -45,12 +45,15 @@ export function logout(): void {
 }
 
 export function setTurnoEnSesion(turnoId: string | null): void {
-  if (sesion) sesion.turno_id = turnoId;
+  if (sesion) {
+    sesion.turno_id = turnoId;
+    sesion.turno_retomado = false;
+  }
 }
 
 /** Lanza si no hay admin logueado. Se usa para blindar los datos de dinero. */
 export function requireAdmin(): void {
-  if (sesion?.rol !== 'admin') throw new Error('Acceso restringido: se requiere administrador');
+  if (sesion?.rol !== 'admin') throw new Error('Acceso restringido: solo para Administración');
 }
 
 export function requireSesion(): Sesion {
@@ -66,7 +69,7 @@ export function estadoInicial(): EstadoInicial {
 
 /** Crea el admin inicial y devuelve un código de recuperación (mostrar una sola vez). */
 export function setupAdmin(datos: SetupAdmin): { recoveryCode: string } {
-  if (db.existeAdmin()) throw new Error('Ya existe un administrador');
+  if (db.existeAdmin()) throw new Error('Ya existe una cuenta de administración');
   if (!datos.usuario.trim() || datos.password.length < 4)
     throw new Error('Usuario y contraseña (mín. 4 caracteres) son obligatorios');
 
@@ -119,7 +122,7 @@ export function loginAdmin(usuario: string, password: string): Sesion {
   }
   fallos.delete(clave);
   const turno = db.turnoAbiertoDe(u.id);
-  sesion = { usuario_id: u.id, nombre: u.nombre, rol: 'admin', turno_id: turno?.id ?? null };
+  sesion = { usuario_id: u.id, nombre: u.nombre, rol: 'admin', turno_id: turno?.id ?? null, turno_retomado: !!turno };
   return sesion;
 }
 
@@ -133,7 +136,7 @@ export function loginEmpleada(usuarioId: string, pin: string): Sesion {
   }
   fallos.delete(clave);
   const turno = db.turnoAbiertoDe(u.id);
-  sesion = { usuario_id: u.id, nombre: u.nombre, rol: 'empleada', turno_id: turno?.id ?? null };
+  sesion = { usuario_id: u.id, nombre: u.nombre, rol: 'empleada', turno_id: turno?.id ?? null, turno_retomado: !!turno };
   return sesion;
 }
 
@@ -149,7 +152,7 @@ export function cambiarPinEmpleada(usuarioId: string, pin: string): void {
   requireAdmin();
   if (!/^\d{4}$/.test(pin)) throw new Error('El PIN debe ser de 4 dígitos');
   const u = db.obtenerUsuarioRow(usuarioId);
-  if (!u || u.rol !== 'empleada') throw new Error('Empleada no encontrada');
+  if (!u || u.rol !== 'empleada') throw new Error('No se encontró a esa persona');
   db.actualizarPassHash(usuarioId, hashSecreto(pin));
 }
 
@@ -160,7 +163,7 @@ export function editarUsuario(usuarioId: string, cambios: { nombre?: string; act
 
 export function cambiarPasswordAdmin(passwordActual: string, nueva: string): void {
   const s = requireSesion();
-  if (s.rol !== 'admin') throw new Error('Sólo el admin puede cambiar su contraseña');
+  if (s.rol !== 'admin') throw new Error('Solo Administración puede cambiar esta contraseña');
   const u = db.obtenerUsuarioRow(s.usuario_id);
   if (!u || !verificarSecreto(passwordActual, u.pass_hash))
     throw new Error('La contraseña actual es incorrecta');
@@ -180,7 +183,7 @@ export function resetAdmin(usuario: string, recoveryCode: string, nuevaPassword:
   }
   fallos.delete(clave);
   const u = db.obtenerUsuarioPorLogin(usuario.trim());
-  if (!u) throw new Error('No existe un admin con ese usuario');
+  if (!u) throw new Error('No hay una cuenta de administración con ese usuario');
   if (nuevaPassword.length < 4) throw new Error('La nueva contraseña debe tener al menos 4 caracteres');
   db.actualizarPassHash(u.id, hashSecreto(nuevaPassword));
 }

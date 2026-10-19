@@ -22,7 +22,7 @@ export function EmpleadasSection({ onFlash }: { onFlash: (m: string) => void }) 
     if (!res.ok) return onFlash(res.error ?? 'Error');
     setNombre('');
     setPin('');
-    onFlash('Empleada creada');
+    onFlash('Listo: ya puede entrar con su PIN');
     cargar();
   }
 
@@ -42,10 +42,10 @@ export function EmpleadasSection({ onFlash }: { onFlash: (m: string) => void }) 
 
   return (
     <section className="card p-5">
-      <h2 className="font-bold text-lg mb-3">👥 Empleadas</h2>
+      <h2 className="font-bold text-lg mb-3">👥 Personal</h2>
 
       <div className="space-y-2 mb-4">
-        {empleadas.length === 0 && <div className="text-slate-500 text-sm">Todavía no hay empleadas.</div>}
+        {empleadas.length === 0 && <div className="text-slate-500 text-sm">Todavía no cargaste a nadie del personal.</div>}
         {empleadas.map((e) => (
           <div key={e.id} className="flex items-center gap-2 bg-base-700/50 rounded-lg p-2">
             <span className="text-xl">👤</span>
@@ -125,7 +125,7 @@ export function PasswordSection({ onFlash }: { onFlash: (m: string) => void }) {
 
   return (
     <section className="card p-5">
-      <h2 className="font-bold text-lg mb-3">🔑 Contraseña de administrador</h2>
+      <h2 className="font-bold text-lg mb-3">🔑 Contraseña de administración</h2>
       <div className="grid grid-cols-3 gap-3">
         <div>
           <label className="block text-sm text-slate-400 mb-1">Actual</label>

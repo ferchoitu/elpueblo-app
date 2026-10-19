@@ -7,13 +7,15 @@ interface Props {
   producto: Producto;
   onConfirm: (gramos: number) => void;
   onCancel: () => void;
+  /** false = sin balanza (ej: pedidos, el producto no está en el plato): solo carga manual. */
+  conBalanza?: boolean;
 }
 
 /**
  * Pide el peso a la balanza y permite corregirlo a mano.
  * La caja nunca se traba: si la balanza falla, se ingresa manualmente.
  */
-export default function WeightPrompt({ producto, onConfirm, onCancel }: Props) {
+export default function WeightPrompt({ producto, onConfirm, onCancel, conBalanza = true }: Props) {
   const [gramosStr, setGramosStr] = useState('');
   const [leyendo, setLeyendo] = useState(false);
   const [estado, setEstado] = useState<string>('');
@@ -33,8 +35,8 @@ export default function WeightPrompt({ producto, onConfirm, onCancel }: Props) {
   }, []);
 
   useEffect(() => {
-    leerBalanza();
-  }, [leerBalanza]);
+    if (conBalanza) leerBalanza();
+  }, [leerBalanza, conBalanza]);
 
   const gramos = parseFloat(gramosStr || '0') || 0;
   const subtotal = (precioKg * gramos) / 1000;
@@ -58,11 +60,15 @@ export default function WeightPrompt({ producto, onConfirm, onCancel }: Props) {
           <div className="text-sm text-slate-400 mt-1 min-h-[1.25rem]">{estado}</div>
         </div>
 
-        <button onClick={leerBalanza} disabled={leyendo} className="btn-ghost w-full py-3 mb-3">
-          {leyendo ? 'Leyendo…' : '⚖️ Volver a leer balanza'}
-        </button>
+        {conBalanza && (
+          <button onClick={leerBalanza} disabled={leyendo} className="btn-ghost w-full py-3 mb-3">
+            {leyendo ? 'Leyendo…' : '⚖️ Volver a leer balanza'}
+          </button>
+        )}
 
-        <div className="text-xs text-slate-400 mb-1">O ingresá los gramos a mano:</div>
+        <div className="text-xs text-slate-400 mb-1">
+          {conBalanza ? 'O ingresá los gramos a mano:' : 'Ingresá los gramos:'}
+        </div>
         <NumericKeypad
           value={gramosStr}
           onChange={setGramosStr}

@@ -5,14 +5,18 @@ import MetricasPage from './pages/MetricasPage';
 import ProductosPage from './pages/ProductosPage';
 import ConfigPage from './pages/ConfigPage';
 import TurnosPage from './pages/TurnosPage';
+import PedidosPage from './pages/PedidosPage';
+import RepartoPage from './pages/RepartoPage';
 import SetupWizard from './components/auth/SetupWizard';
 import LoginScreen from './components/auth/LoginScreen';
 import CerrarTurno from './components/turno/CerrarTurno';
 
-type Tab = 'pos' | 'metricas' | 'productos' | 'turnos' | 'config';
+type Tab = 'pos' | 'pedidos' | 'reparto' | 'metricas' | 'productos' | 'turnos' | 'config';
 
 const TABS: { id: Tab; label: string; emoji: string; soloAdmin: boolean }[] = [
   { id: 'pos', label: 'Caja', emoji: '🧾', soloAdmin: false },
+  { id: 'pedidos', label: 'Pedidos', emoji: '📋', soloAdmin: false },
+  { id: 'reparto', label: 'Reparto', emoji: '🛵', soloAdmin: false },
   { id: 'metricas', label: 'Métricas', emoji: '📊', soloAdmin: true },
   { id: 'productos', label: 'Productos', emoji: '🥐', soloAdmin: false },
   { id: 'turnos', label: 'Turnos', emoji: '📅', soloAdmin: true },
@@ -113,7 +117,7 @@ export default function App() {
           )}
           <div className="text-right leading-tight">
             <div className="font-semibold text-sm">{sesion.nombre}</div>
-            <div className="text-xs text-slate-400">{esAdmin ? 'Administrador' : 'Empleada'}</div>
+            <div className="text-xs text-slate-400">{esAdmin ? 'Administración' : 'Personal'}</div>
           </div>
           <button onClick={intentarSalir} className="btn-ghost px-3 py-2 text-sm" title="Cerrar sesión">
             ⏻ Salir
@@ -123,6 +127,8 @@ export default function App() {
 
       <main className="flex-1 min-h-0">
         {tabActual === 'pos' && <PosPage />}
+        {tabActual === 'pedidos' && <PedidosPage />}
+        {tabActual === 'reparto' && <RepartoPage />}
         {tabActual === 'metricas' && esAdmin && <MetricasPage />}
         {tabActual === 'productos' && <ProductosPage />}
         {tabActual === 'turnos' && esAdmin && <TurnosPage />}

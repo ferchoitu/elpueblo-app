@@ -32,11 +32,11 @@ export default function LoginScreen() {
   return (
     <Centrado>
       <h1 className="text-2xl font-bold mb-1">DEL PUEBLO · Caja</h1>
-      <p className="text-slate-400 mb-5">Elegí tu usuario para entrar.</p>
+      <p className="text-slate-400 mb-5">Elegí tu nombre para entrar.</p>
 
       {empleadas.length > 0 && (
         <>
-          <div className="text-sm text-slate-400 mb-2">Empleadas</div>
+          <div className="text-sm text-slate-400 mb-2">Personal</div>
           <div className="grid grid-cols-2 gap-2 mb-5">
             {empleadas.map((e) => (
               <button
@@ -55,7 +55,7 @@ export default function LoginScreen() {
       )}
 
       <button onClick={() => setModo('admin')} className="btn-primary w-full py-4">
-        🔑 Entrar como administrador
+        🔑 Entrar a Administración
       </button>
     </Centrado>
   );
@@ -138,7 +138,7 @@ function AdminLogin({
       <button onClick={onBack} className="text-slate-400 mb-2">
         ← Volver
       </button>
-      <h1 className="text-xl font-bold mb-4">Administrador</h1>
+      <h1 className="text-xl font-bold mb-4">Administración</h1>
       <label className="block text-sm text-slate-400 mb-1">Usuario</label>
       <input className="input mb-3" value={usuario} onChange={(e) => setUsuario(e.target.value)} autoCapitalize="none" />
       <label className="block text-sm text-slate-400 mb-1">Contraseña</label>
@@ -182,9 +182,9 @@ function RecoveryForm({ onBack }: { onBack: () => void }) {
       </button>
       <h1 className="text-xl font-bold mb-1">Recuperar contraseña</h1>
       <p className="text-slate-400 mb-4 text-sm">
-        Usá el código de recuperación que anotaste al crear el administrador.
+        Usá el código de recuperación que anotaste al crear la cuenta de administración.
       </p>
-      <label className="block text-sm text-slate-400 mb-1">Usuario admin</label>
+      <label className="block text-sm text-slate-400 mb-1">Usuario de administración</label>
       <input className="input mb-3" value={usuario} onChange={(e) => setUsuario(e.target.value)} autoCapitalize="none" />
       <label className="block text-sm text-slate-400 mb-1">Código de recuperación</label>
       <input className="input mb-3" value={code} onChange={(e) => setCode(e.target.value)} placeholder="Ej: A1B2C3D4E5" />

@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import type { Producto, Categoria } from '@shared/types';
+import type { Producto, Categoria, TurnoActualEmpleada } from '@shared/types';
 import { useCart } from '../store/cartStore';
 import { useAuth } from '../store/authStore';
 import CategoryTabs from '../components/pos/CategoryTabs';
@@ -10,7 +10,11 @@ import QuantityPrompt from '../components/pos/QuantityPrompt';
 import CheckoutModal from '../components/pos/CheckoutModal';
 import NumericKeypad from '../components/pos/NumericKeypad';
 import AbrirTurno from '../components/turno/AbrirTurno';
+import TurnoVencido from '../components/turno/TurnoVencido';
 import { money } from '../lib/format';
+
+// Turno retomado del que ya se avisó (a nivel módulo: PosPage se desmonta al cambiar de pestaña).
+let turnoAvisado: string | null = null;
 
 export default function PosPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
@@ -46,6 +50,33 @@ export default function PosPage() {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  // Turno en curso: si es de otro día hay que cerrarlo antes de vender. Se re-chequea
+  // cada minuto por si la caja queda prendida y logueada de un día para el otro.
+  const [turno, setTurno] = useState<TurnoActualEmpleada | null>(null);
+  const turnoId = sesion?.turno_id ?? null;
+  useEffect(() => {
+    if (!turnoId) {
+      setTurno(null);
+      return;
+    }
+    let vivo = true;
+    const leer = () => window.api.turno.actual().then((t) => vivo && setTurno(t));
+    leer();
+    const id = setInterval(leer, 60_000);
+    return () => {
+      vivo = false;
+      clearInterval(id);
+    };
+  }, [turnoId]);
+
+  // Turno del mismo día que ya estaba abierto al entrar: se avisa y se sigue.
+  useEffect(() => {
+    if (!turno || turno.de_otro_dia || !sesion?.turno_retomado || turnoAvisado === turno.id) return;
+    turnoAvisado = turno.id;
+    const hora = new Date(turno.apertura_at).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
+    mostrarToast(`Seguís con el turno #${turno.numero}, abierto hoy a las ${hora}`);
+  }, [turno, sesion?.turno_retomado]);
 
   const catMap = useMemo(() => new Map(categorias.map((c) => [c.id, c])), [categorias]);
 
@@ -118,6 +149,7 @@ export default function PosPage() {
 
   // Sin turno abierto no se puede cobrar: se pide abrir turno (fondo inicial).
   if (!sesion?.turno_id) return <AbrirTurno />;
+  if (turno?.id === sesion.turno_id && turno.de_otro_dia) return <TurnoVencido turno={turno} />;
 
   return (
     <div className="h-full flex">

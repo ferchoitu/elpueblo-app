@@ -16,7 +16,7 @@ completas y **auto-actualización** desde GitHub Releases.
 - **Ticket 58 mm** con **logo**, datos del negocio, **alias para transferencias**, N° y
   fecha/hora automáticos. **Reimpresión** del último ticket (POS) o de cualquiera (admin).
 - **Roles**: la **empleada** (PIN de 4 dígitos) solo ve la Caja, sin números de ventas.
-  El **admin** (usuario + contraseña) ve todo. Datos de dinero blindados en el proceso main.
+  **Administración** (usuario + contraseña) ve todo. Textos de la app en lenguaje neutro. Datos de dinero blindados en el proceso main.
 - **Turnos / cierre de caja sin contar**: la empleada abre con un fondo, y al cerrar deja ese
   fondo en la caja y guarda el excedente con el **ticket Z**. El **admin cuenta después** y
   registra el conteo → diferencia (faltante/sobrante) por turno.
@@ -24,6 +24,13 @@ completas y **auto-actualización** desde GitHub Releases.
 - **Métricas (admin)**: KPIs, evolución por día, **ventas por hora**, comparativa mensual,
   top productos, desglose por pago, caja por turno, **detalle de artículo por hora** y
   **listado de tickets**. Períodos: hoy / semana / mes / **año** / personalizado.
+- **Pedidos**: encargos para una fecha (cliente, teléfono, dirección, productos del catálogo o
+  ítem libre). La seña y el saldo se cobran como ventas del turno; ticket en dos copias
+  (cliente + local).
+- **Reparto** (por fuera de la caja del local): liquidación de cada repartidor con lo vendido
+  por cliente, cobros en efectivo/transferencia y diferencia de efectivo entregado; cuentas
+  corrientes de clientes y métricas. El personal carga; Administración ve todo.
+- Si quedó abierto un **turno de otro día**, obliga a cerrarlo (con su Z) antes de abrir el nuevo.
 - **Export CSV** de ventas (una fila por artículo, con turno/empleada/pago) y de cierres.
 - **Backups**: manual (botón) y **automático diario** (rota 30 copias) — ambos consistentes.
 - **Auto-update**: la app instalada se actualiza sola desde GitHub Releases.

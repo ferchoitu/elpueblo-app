@@ -4,6 +4,8 @@ import { money } from '../../lib/format';
 
 interface Props {
   onClose: () => void;
+  /** Cierre de un turno de otro día: al terminar se sigue a abrir el turno nuevo (sin salir). */
+  continuar?: boolean;
 }
 
 /**
@@ -11,7 +13,7 @@ interface Props {
  * que empezó y guarda el excedente (las ventas) junto al ticket Z. NO cuenta nada.
  * El admin cuenta el sobre después y registra el resultado desde "Turnos".
  */
-export default function CerrarTurno({ onClose }: Props) {
+export default function CerrarTurno({ onClose, continuar = false }: Props) {
   const { sesion, logout, refrescarSesion } = useAuth();
   const [paso, setPaso] = useState<'fondo' | 'excedente'>('fondo');
   const [fondo, setFondo] = useState<number | null>(null);
@@ -40,7 +42,7 @@ export default function CerrarTurno({ onClose }: Props) {
   }
 
   async function terminar() {
-    if (sesion?.rol === 'empleada') await logout();
+    if (sesion?.rol === 'empleada' && !continuar) await logout();
     else await refrescarSesion();
     onClose();
   }
@@ -53,7 +55,7 @@ export default function CerrarTurno({ onClose }: Props) {
             <h2 className="text-xl font-bold mb-3">Listo ✅</h2>
             <p className="text-slate-300 mb-5">{hecho}</p>
             <button onClick={terminar} className="btn-primary w-full py-4">
-              {sesion?.rol === 'empleada' ? 'Salir' : 'Aceptar'}
+              {continuar ? 'Abrir turno de hoy →' : sesion?.rol === 'empleada' ? 'Salir' : 'Aceptar'}
             </button>
           </>
         ) : paso === 'fondo' ? (
@@ -67,7 +69,9 @@ export default function CerrarTurno({ onClose }: Props) {
               <div className="text-4xl font-black text-amber-200 my-3 tabular-nums">
                 {fondo != null ? money(fondo) : '…'}
               </div>
-              <p className="text-sm text-amber-200/80">No retires este fondo. Queda para mañana.</p>
+              <p className="text-sm text-amber-200/80">
+                No retires este fondo. {continuar ? 'Es el fondo del turno de hoy.' : 'Queda para mañana.'}
+              </p>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <button onClick={onClose} className="btn-ghost py-4">

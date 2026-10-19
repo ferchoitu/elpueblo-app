@@ -89,7 +89,7 @@ export default function TurnosPage() {
       <div className="card overflow-hidden">
         <div className="grid grid-cols-[auto_1fr_1fr_1fr_1fr_1fr_1fr_auto] gap-2 px-4 py-2 text-xs text-slate-400 border-b border-base-700 font-semibold">
           <div>#</div>
-          <div>Empleada</div>
+          <div>Atendió</div>
           <div>Apertura</div>
           <div>Cierre</div>
           <div className="text-right">Ventas</div>

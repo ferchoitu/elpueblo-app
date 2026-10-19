@@ -19,7 +19,7 @@ export default function CajaAperturaCierre({ turnos }: Props) {
             <thead className="sticky top-0 bg-base-800">
               <tr className="text-left text-slate-400 border-b border-base-700">
                 <th className="py-2 pr-2 font-semibold">Fecha</th>
-                <th className="py-2 pr-2 font-semibold">Empleada</th>
+                <th className="py-2 pr-2 font-semibold">Atendió</th>
                 <th className="py-2 pr-2 font-semibold text-right">Fondo</th>
                 <th className="py-2 pr-2 font-semibold text-right">Excedente esp.</th>
                 <th className="py-2 pr-2 font-semibold text-right">Contado</th>

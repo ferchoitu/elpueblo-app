@@ -1,4 +1,5 @@
 import * as db from './db';
+import * as reparto from './reparto';
 import { getSyncConfig } from './config';
 
 // ===========================================================================
@@ -18,6 +19,7 @@ export interface ResultadoSync {
   ok: boolean;
   ventas?: number;
   turnos?: number;
+  pedidos?: number;
   error?: string;
 }
 
@@ -31,16 +33,19 @@ export async function sincronizar(): Promise<ResultadoSync> {
   try {
     const ventas = db.ventasPendientes(300);
     const turnos = db.turnosPendientes(300);
-    if (!ventas.length && !turnos.length) {
+    const pedidos = db.pedidosPendientes(300);
+    const rep = reparto.repartoPendientes(300);
+    const hayReparto = rep.repartidores.length + rep.clientes.length + rep.liquidaciones.length + rep.cobros.length > 0;
+    if (!ventas.length && !turnos.length && !pedidos.length && !hayReparto) {
       ultimaSync = new Date().toISOString();
       ultimoError = null;
-      return { ok: true, ventas: 0, turnos: 0 };
+      return { ok: true, ventas: 0, turnos: 0, pedidos: 0 };
     }
 
     const res = await fetch(cfg.url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-device-token': cfg.token },
-      body: JSON.stringify({ ventas, turnos }),
+      body: JSON.stringify({ ventas, turnos, pedidos, reparto: rep }),
       signal: AbortSignal.timeout(20000),
     });
 
@@ -52,9 +57,14 @@ export async function sincronizar(): Promise<ResultadoSync> {
 
     db.marcarSincronizados('ventas', ventas.map((v) => v.id));
     db.marcarSincronizados('turnos', turnos.map((t) => t.id));
+    db.marcarSincronizados('pedidos', pedidos.map((p) => p.id));
+    // El reparto solo se marca si la función de la nube lo guardó (una versión vieja
+    // de `push` lo ignoraría y se perdería).
+    const resp = (await res.json().catch(() => ({}))) as { reparto?: unknown };
+    if (hayReparto && resp.reparto !== undefined) reparto.marcarRepartoSincronizado(rep);
     ultimaSync = new Date().toISOString();
     ultimoError = null;
-    return { ok: true, ventas: ventas.length, turnos: turnos.length };
+    return { ok: true, ventas: ventas.length, turnos: turnos.length, pedidos: pedidos.length };
   } catch (e) {
     // Sin internet / timeout: se reintenta después.
     ultimoError = (e as Error).message;
@@ -65,11 +75,13 @@ export async function sincronizar(): Promise<ResultadoSync> {
 }
 
 export function estadoSync() {
-  const { ventas, turnos } = db.pendientesCount();
+  const { ventas, turnos, pedidos } = db.pendientesCount();
   return {
     habilitado: getSyncConfig().habilitado,
     pendientesVentas: ventas,
     pendientesTurnos: turnos,
+    pendientesPedidos: pedidos,
+    pendientesReparto: reparto.repartoPendientesCount(),
     ultimaSync,
     ultimoError,
   };

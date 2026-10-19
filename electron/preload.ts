@@ -25,6 +25,21 @@ import type {
   DetalleItemVendido,
   ConfigSync,
   EstadoSync,
+  NuevoPedido,
+  PedidoConItems,
+  PagoPedidoInput,
+  FiltroPedidos,
+  CopiaTicketPedido,
+  Repartidor,
+  ClienteReparto,
+  NuevaLiquidacion,
+  Liquidacion,
+  LiquidacionDetalle,
+  CuentaCliente,
+  MovimientoCuenta,
+  MetodoCobroReparto,
+  RangoDias,
+  MetricasReparto,
 } from '../shared/types';
 
 // API segura expuesta al renderer. Todo pasa por IPC hacia el proceso main.
@@ -75,6 +90,40 @@ const api = {
       ipcRenderer.invoke('usuarios:cambiarPin', id, pin),
     editar: (id: string, cambios: { nombre?: string; activo?: number }): Promise<Resultado<void>> =>
       ipcRenderer.invoke('usuarios:editar', id, cambios),
+  },
+  pedidos: {
+    listar: (f: FiltroPedidos): Promise<Resultado<PedidoConItems[]>> => ipcRenderer.invoke('pedidos:listar', f),
+    crear: (p: NuevoPedido): Promise<Resultado<PedidoConItems>> => ipcRenderer.invoke('pedidos:crear', p),
+    entregar: (id: string, pago: PagoPedidoInput | null): Promise<Resultado<PedidoConItems>> =>
+      ipcRenderer.invoke('pedidos:entregar', id, pago),
+    cancelar: (id: string): Promise<Resultado<void>> => ipcRenderer.invoke('pedidos:cancelar', id),
+    imprimir: (id: string, copias: CopiaTicketPedido[]): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('pedidos:imprimir', id, copias),
+  },
+  reparto: {
+    repartidores: (incluirInactivos?: boolean): Promise<Resultado<Repartidor[]>> =>
+      ipcRenderer.invoke('reparto:repartidores', incluirInactivos),
+    crearRepartidor: (nombre: string, telefono: string | null): Promise<Resultado<Repartidor>> =>
+      ipcRenderer.invoke('reparto:crearRepartidor', nombre, telefono),
+    editarRepartidor: (id: string, cambios: { nombre?: string; telefono?: string | null; activo?: number }): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('reparto:editarRepartidor', id, cambios),
+    clientes: (repartidorId: string, incluirInactivos?: boolean): Promise<Resultado<ClienteReparto[]>> =>
+      ipcRenderer.invoke('reparto:clientes', repartidorId, incluirInactivos),
+    crearCliente: (c: { repartidor_id: string; nombre: string; telefono?: string | null; direccion?: string | null }): Promise<Resultado<ClienteReparto>> =>
+      ipcRenderer.invoke('reparto:crearCliente', c),
+    editarCliente: (id: string, cambios: { nombre?: string; telefono?: string | null; direccion?: string | null; activo?: number }): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('reparto:editarCliente', id, cambios),
+    crearLiquidacion: (n: NuevaLiquidacion): Promise<Resultado<LiquidacionDetalle>> =>
+      ipcRenderer.invoke('reparto:crearLiquidacion', n),
+    liquidaciones: (rango: RangoDias, repartidorId?: string | null): Promise<Resultado<Liquidacion[]>> =>
+      ipcRenderer.invoke('reparto:liquidaciones', rango, repartidorId),
+    liquidacion: (id: string): Promise<Resultado<LiquidacionDetalle | null>> => ipcRenderer.invoke('reparto:liquidacion', id),
+    anularLiquidacion: (id: string): Promise<Resultado<void>> => ipcRenderer.invoke('reparto:anularLiquidacion', id),
+    cuentas: (repartidorId?: string | null): Promise<Resultado<CuentaCliente[]>> => ipcRenderer.invoke('reparto:cuentas', repartidorId),
+    movimientos: (clienteId: string): Promise<Resultado<MovimientoCuenta[]>> => ipcRenderer.invoke('reparto:movimientos', clienteId),
+    registrarCobro: (clienteId: string, monto: number, metodo: MetodoCobroReparto, fecha: string): Promise<Resultado<void>> =>
+      ipcRenderer.invoke('reparto:registrarCobro', clienteId, monto, metodo, fecha),
+    metricas: (rango: RangoDias): Promise<Resultado<MetricasReparto>> => ipcRenderer.invoke('reparto:metricas', rango),
   },
   turno: {
     actual: (): Promise<TurnoActualEmpleada | null> => ipcRenderer.invoke('turno:actual'),
@@ -146,7 +195,7 @@ const api = {
       ipcRenderer.invoke('config:guardarSync', v),
   },
   sync: {
-    ahora: (): Promise<{ ok: boolean; ventas?: number; turnos?: number; error?: string }> =>
+    ahora: (): Promise<{ ok: boolean; ventas?: number; turnos?: number; pedidos?: number; error?: string }> =>
       ipcRenderer.invoke('sync:ahora'),
     estado: (): Promise<EstadoSync> => ipcRenderer.invoke('sync:estado'),
   },

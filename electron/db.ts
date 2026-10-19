@@ -19,6 +19,13 @@ import type {
   Turno,
   Rol,
   DetalleItemVendido,
+  NuevoPedido,
+  Pedido,
+  PedidoItem,
+  PedidoConItems,
+  PagoDePedido,
+  PagoPedidoInput,
+  FiltroPedidos,
 } from '../shared/types';
 
 let db: Database.Database;
@@ -120,7 +127,114 @@ CREATE TABLE IF NOT EXISTS turnos (
   created_at        TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS pedidos (
+  id                TEXT PRIMARY KEY,
+  numero            INTEGER NOT NULL,
+  cliente_nombre    TEXT NOT NULL,
+  cliente_telefono  TEXT NOT NULL,
+  cliente_direccion TEXT,
+  fecha_entrega     TEXT NOT NULL,     -- yyyy-mm-dd (fecha local)
+  hora_entrega      TEXT,              -- HH:MM
+  notas             TEXT,
+  total             REAL NOT NULL,
+  estado            TEXT NOT NULL DEFAULT 'pendiente',
+  usuario_id        TEXT,
+  entregado_at      TEXT,
+  entregado_por     TEXT,
+  cancelado_at      TEXT,
+  cancelado_por     TEXT,
+  created_at        TEXT NOT NULL,
+  synced_at         TEXT
+);
+
+CREATE TABLE IF NOT EXISTS pedido_items (
+  id                       TEXT PRIMARY KEY,
+  pedido_id                TEXT NOT NULL REFERENCES pedidos(id) ON DELETE CASCADE,
+  producto_id              TEXT,
+  nombre_producto          TEXT NOT NULL,
+  tipo_venta_usado         TEXT NOT NULL,
+  cantidad                 REAL NOT NULL,
+  unidad                   TEXT NOT NULL,
+  precio_unitario_aplicado REAL NOT NULL,
+  subtotal                 REAL NOT NULL
+);
+
+-- Reparto: por fuera de la caja del local (ver electron/reparto.ts).
+CREATE TABLE IF NOT EXISTS repartidores (
+  id         TEXT PRIMARY KEY,
+  nombre     TEXT NOT NULL,
+  telefono   TEXT,
+  activo     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL,
+  synced_at  TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reparto_clientes (
+  id            TEXT PRIMARY KEY,
+  repartidor_id TEXT NOT NULL REFERENCES repartidores(id),
+  nombre        TEXT NOT NULL,
+  telefono      TEXT,
+  direccion     TEXT,
+  activo        INTEGER NOT NULL DEFAULT 1,
+  created_at    TEXT NOT NULL,
+  synced_at     TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reparto_liquidaciones (
+  id                    TEXT PRIMARY KEY,
+  numero                INTEGER NOT NULL,
+  repartidor_id         TEXT NOT NULL REFERENCES repartidores(id),
+  fecha                 TEXT NOT NULL,     -- yyyy-mm-dd (día del reparto)
+  total_vendido         REAL NOT NULL,
+  cobrado_efectivo      REAL NOT NULL,
+  cobrado_transferencia REAL NOT NULL,
+  efectivo_entregado    REAL,
+  diferencia            REAL,
+  notas                 TEXT,
+  estado                TEXT NOT NULL DEFAULT 'confirmada',
+  usuario_id            TEXT,
+  anulada_por           TEXT,
+  anulada_at            TEXT,
+  created_at            TEXT NOT NULL,
+  synced_at             TEXT
+);
+
+CREATE TABLE IF NOT EXISTS reparto_items (
+  id              TEXT PRIMARY KEY,
+  liquidacion_id  TEXT NOT NULL REFERENCES reparto_liquidaciones(id) ON DELETE CASCADE,
+  cliente_id      TEXT NOT NULL REFERENCES reparto_clientes(id),
+  producto_id     TEXT,
+  nombre_producto TEXT NOT NULL,
+  unidad          TEXT NOT NULL,          -- 'kg' | 'u'
+  cantidad        REAL NOT NULL,
+  precio_unitario REAL NOT NULL,
+  subtotal        REAL NOT NULL
+);
+
+-- Cobros a clientes del reparto. liquidacion_id NULL = pago suelto (ej: vino a
+-- pagar la deuda al local). estado 'anulado' no cuenta para el saldo.
+CREATE TABLE IF NOT EXISTS reparto_cobros (
+  id             TEXT PRIMARY KEY,
+  liquidacion_id TEXT REFERENCES reparto_liquidaciones(id) ON DELETE CASCADE,
+  cliente_id     TEXT NOT NULL REFERENCES reparto_clientes(id),
+  fecha          TEXT NOT NULL,           -- yyyy-mm-dd
+  monto          REAL NOT NULL,
+  metodo         TEXT NOT NULL,           -- 'efectivo' | 'transferencia'
+  estado         TEXT NOT NULL DEFAULT 'confirmado',
+  usuario_id     TEXT,
+  created_at     TEXT NOT NULL,
+  synced_at      TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_rep_clientes ON reparto_clientes(repartidor_id);
+CREATE INDEX IF NOT EXISTS idx_rep_liq_fecha ON reparto_liquidaciones(fecha);
+CREATE INDEX IF NOT EXISTS idx_rep_items_liq ON reparto_items(liquidacion_id);
+CREATE INDEX IF NOT EXISTS idx_rep_items_cliente ON reparto_items(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_rep_cobros_cliente ON reparto_cobros(cliente_id);
+
 CREATE INDEX IF NOT EXISTS idx_ventas_fecha ON ventas(fecha);
+CREATE INDEX IF NOT EXISTS idx_pedidos_estado ON pedidos(estado, fecha_entrega);
+CREATE INDEX IF NOT EXISTS idx_pedido_items ON pedido_items(pedido_id);
 CREATE INDEX IF NOT EXISTS idx_items_venta ON venta_items(venta_id);
 CREATE INDEX IF NOT EXISTS idx_turnos_usuario ON turnos(usuario_id);
 `;
@@ -153,6 +267,10 @@ function migrar(d: Database.Database): void {
     d.exec('ALTER TABLE turnos ADD COLUMN synced_at TEXT');
   }
   d.exec('CREATE INDEX IF NOT EXISTS idx_ventas_synced ON ventas(synced_at)');
+
+  // Pedidos: la seña y el saldo se cobran como ventas del turno, atadas al pedido.
+  if (!ventasCols.includes('pedido_id')) d.exec('ALTER TABLE ventas ADD COLUMN pedido_id TEXT');
+  d.exec('CREATE INDEX IF NOT EXISTS idx_ventas_pedido ON ventas(pedido_id)');
   d.exec('CREATE INDEX IF NOT EXISTS idx_turnos_synced ON turnos(synced_at)');
 }
 
@@ -461,6 +579,11 @@ export function turnoAbiertoDe(usuarioId: string): Turno | null {
   );
 }
 
+/** ¿El turno se abrió otro día (fecha local de la caja)? Ej: quedó abierto de ayer. */
+export function turnoEsDeOtroDia(t: Pick<Turno, 'apertura_at'>): boolean {
+  return new Date(t.apertura_at).toDateString() !== new Date().toDateString();
+}
+
 export function obtenerTurno(id: string): Turno | null {
   const t = db
     .prepare(
@@ -568,13 +691,185 @@ export function registrarConteoTurno(turnoId: string, efectivoContado: number): 
 }
 
 // ---------------------------------------------------------------------------
+// Pedidos (encargos para una fecha). La seña y el saldo NO se guardan en el
+// pedido: cada cobro es una venta del turno con `pedido_id`, así la caja, el Z y
+// la sync cuadran solos, y si se anula esa venta el pedido vuelve a deber.
+// ---------------------------------------------------------------------------
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Registra un cobro de pedido como venta del turno (un único ítem "Seña"/"Saldo"). */
+function cobrarPedido(
+  pedidoId: string,
+  concepto: string,
+  pago: PagoPedidoInput,
+  turnoId: string,
+  usuarioId: string
+): void {
+  const monto = round2(pago.monto);
+  const recibido = pago.metodo_pago === 'efectivo' ? pago.monto_recibido ?? monto : null;
+  if (recibido != null && recibido < monto) throw new Error('El efectivo recibido no alcanza');
+  const venta = crearVenta(
+    {
+      items: [
+        {
+          producto_id: null,
+          nombre_producto: concepto,
+          tipo_venta_usado: 'unidad',
+          cantidad: 1,
+          unidad: 'u',
+          precio_unitario_aplicado: monto,
+          subtotal: monto,
+        },
+      ],
+      total: monto,
+      metodo_pago: pago.metodo_pago,
+      monto_recibido: recibido,
+      vuelto: recibido != null ? round2(recibido - monto) : null,
+    },
+    turnoId,
+    usuarioId
+  );
+  db.prepare('UPDATE ventas SET pedido_id = ? WHERE id = ?').run(pedidoId, venta.id);
+}
+
+export function crearPedido(
+  p: NuevoPedido,
+  usuarioId: string,
+  turnoId: string | null
+): PedidoConItems {
+  const nombre = p.cliente_nombre?.trim();
+  const telefono = p.cliente_telefono?.trim();
+  if (!nombre) throw new Error('Falta el nombre del cliente');
+  if (!telefono) throw new Error('Falta el teléfono del cliente');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(p.fecha_entrega ?? '')) throw new Error('Falta la fecha de entrega');
+  if (!p.items?.length) throw new Error('El pedido no tiene productos');
+  if (p.items.some((it) => !Number.isFinite(it.subtotal) || it.subtotal < 0)) {
+    throw new Error('Hay un producto con importe inválido');
+  }
+  const total = round2(p.items.reduce((acc, it) => acc + it.subtotal, 0));
+  const monto = p.pago ? round2(p.pago.monto) : 0;
+  if (monto < 0 || monto > total) throw new Error('La seña no puede superar el total del pedido');
+  if (monto > 0 && !turnoId) throw new Error('Abrí un turno en la Caja para cobrar la seña');
+
+  const tx = db.transaction((): string => {
+    const maxRow = db.prepare('SELECT COALESCE(MAX(numero),0) AS max FROM pedidos').get() as { max: number };
+    const id = randomUUID();
+    db.prepare(
+      `INSERT INTO pedidos (id, numero, cliente_nombre, cliente_telefono, cliente_direccion, fecha_entrega,
+         hora_entrega, notas, total, estado, usuario_id, created_at, synced_at)
+       VALUES (@id, @numero, @cliente_nombre, @cliente_telefono, @cliente_direccion, @fecha_entrega,
+         @hora_entrega, @notas, @total, 'pendiente', @usuario_id, @created_at, NULL)`
+    ).run({
+      id,
+      numero: maxRow.max + 1,
+      cliente_nombre: nombre,
+      cliente_telefono: telefono,
+      cliente_direccion: p.cliente_direccion?.trim() || null,
+      fecha_entrega: p.fecha_entrega,
+      hora_entrega: p.hora_entrega || null,
+      notas: p.notas?.trim() || null,
+      total,
+      usuario_id: usuarioId,
+      created_at: nowUTC(),
+    });
+    const insItem = db.prepare(
+      `INSERT INTO pedido_items (id, pedido_id, producto_id, nombre_producto, tipo_venta_usado, cantidad, unidad, precio_unitario_aplicado, subtotal)
+       VALUES (@id, @pedido_id, @producto_id, @nombre_producto, @tipo_venta_usado, @cantidad, @unidad, @precio_unitario_aplicado, @subtotal)`
+    );
+    for (const it of p.items) insItem.run({ ...it, id: randomUUID(), pedido_id: id });
+    if (monto > 0) {
+      const concepto = monto >= total ? 'Pedido · pago total' : 'Pedido · seña';
+      cobrarPedido(id, concepto, { ...p.pago!, monto }, turnoId!, usuarioId);
+    }
+    return id;
+  });
+
+  return obtenerPedido(tx())!;
+}
+
+function completarPedido(p: Pedido): PedidoConItems {
+  const items = db.prepare('SELECT * FROM pedido_items WHERE pedido_id = ?').all(p.id) as PedidoItem[];
+  const pagos = db
+    .prepare(
+      `SELECT id AS venta_id, numero AS venta_numero, fecha, total AS monto, metodo_pago
+       FROM ventas WHERE pedido_id = ? AND estado = 'completada' ORDER BY fecha`
+    )
+    .all(p.id) as PagoDePedido[];
+  const pagado = round2(pagos.reduce((acc, x) => acc + x.monto, 0));
+  return { ...p, items, pagos, pagado, saldo: round2(Math.max(0, p.total - pagado)) };
+}
+
+const SELECT_PEDIDO = `SELECT p.*, u.nombre AS usuario_nombre FROM pedidos p
+  LEFT JOIN usuarios u ON u.id = p.usuario_id`;
+
+export function obtenerPedido(id: string): PedidoConItems | null {
+  const p = db.prepare(`${SELECT_PEDIDO} WHERE p.id = ?`).get(id) as Pedido | undefined;
+  return p ? completarPedido(p) : null;
+}
+
+export function listarPedidos(f: FiltroPedidos): PedidoConItems[] {
+  const q = f.busqueda?.trim();
+  const params: Record<string, unknown> = { estado: f.estado };
+  let where = 'p.estado = @estado';
+  if (q) {
+    where += ` AND (p.cliente_nombre LIKE @q OR p.cliente_telefono LIKE @q OR CAST(p.numero AS TEXT) = @num)`;
+    params.q = `%${q}%`;
+    params.num = q.replace(/^#/, '');
+  }
+  // Pendientes: los más próximos primero. Entregados/cancelados: los últimos primero.
+  const orden =
+    f.estado === 'pendiente'
+      ? `p.fecha_entrega ASC, COALESCE(p.hora_entrega, '99:99') ASC, p.numero ASC`
+      : `p.fecha_entrega DESC, p.numero DESC LIMIT 200`;
+  const filas = db.prepare(`${SELECT_PEDIDO} WHERE ${where} ORDER BY ${orden}`).all(params) as Pedido[];
+  return filas.map(completarPedido);
+}
+
+/** Entrega el pedido: cobra el saldo (si queda) como venta del turno y lo marca entregado. */
+export function entregarPedido(
+  id: string,
+  pago: PagoPedidoInput | null,
+  turnoId: string | null,
+  usuarioId: string,
+  usuarioNombre: string
+): PedidoConItems {
+  const tx = db.transaction(() => {
+    const p = obtenerPedido(id);
+    if (!p) throw new Error('Pedido no encontrado');
+    if (p.estado !== 'pendiente') throw new Error(`El pedido ya está ${p.estado}`);
+    if (p.saldo > 0) {
+      if (!pago) throw new Error('Falta cobrar el saldo');
+      if (!turnoId) throw new Error('Abrí un turno en la Caja para cobrar el saldo');
+      cobrarPedido(id, 'Pedido · saldo', { ...pago, monto: p.saldo }, turnoId, usuarioId);
+    }
+    db.prepare(
+      "UPDATE pedidos SET estado = 'entregado', entregado_at = ?, entregado_por = ?, synced_at = NULL WHERE id = ?"
+    ).run(nowUTC(), usuarioNombre, id);
+  });
+  tx();
+  return obtenerPedido(id)!;
+}
+
+/** Cancela un pedido pendiente. La seña cobrada NO se anula sola (si se devuelve, el admin anula esa venta). */
+export function cancelarPedido(id: string, canceladoPor: string): void {
+  const p = db.prepare('SELECT estado FROM pedidos WHERE id = ?').get(id) as { estado: string } | undefined;
+  if (!p) throw new Error('Pedido no encontrado');
+  if (p.estado !== 'pendiente') throw new Error(`El pedido ya está ${p.estado}`);
+  db.prepare(
+    "UPDATE pedidos SET estado = 'cancelado', cancelado_at = ?, cancelado_por = ?, synced_at = NULL WHERE id = ?"
+  ).run(nowUTC(), canceladoPor, id);
+}
+
+// ---------------------------------------------------------------------------
 // Sincronización a la nube (pendientes = synced_at IS NULL)
 // ---------------------------------------------------------------------------
 
-export function pendientesCount(): { ventas: number; turnos: number } {
+export function pendientesCount(): { ventas: number; turnos: number; pedidos: number } {
   const v = db.prepare('SELECT COUNT(*) AS n FROM ventas WHERE synced_at IS NULL').get() as { n: number };
   const t = db.prepare('SELECT COUNT(*) AS n FROM turnos WHERE synced_at IS NULL').get() as { n: number };
-  return { ventas: v.n, turnos: t.n };
+  const p = db.prepare('SELECT COUNT(*) AS n FROM pedidos WHERE synced_at IS NULL').get() as { n: number };
+  return { ventas: v.n, turnos: t.n, pedidos: p.n };
 }
 
 /** Ventas pendientes con sus ítems y el nombre de la empleada, en el shape de la nube. */
@@ -582,7 +877,7 @@ export function ventasPendientes(limite = 300): any[] {
   const ventas = db
     .prepare(
       `SELECT v.id, v.numero, v.fecha, v.total, v.metodo_pago, v.monto_recibido, v.vuelto,
-              v.estado, v.turno_id, v.anulada_por, v.anulada_at, u.nombre AS empleada
+              v.estado, v.turno_id, v.pedido_id, v.anulada_por, v.anulada_at, u.nombre AS empleada
        FROM ventas v LEFT JOIN usuarios u ON u.id = v.usuario_id
        WHERE v.synced_at IS NULL ORDER BY v.fecha LIMIT ?`
     )
@@ -607,7 +902,26 @@ export function turnosPendientes(limite = 300): any[] {
     .all(limite) as any[];
 }
 
-export function marcarSincronizados(tabla: 'ventas' | 'turnos', ids: string[]): void {
+/** Pedidos pendientes (nuevos, entregados o cancelados desde la última subida) con sus ítems. */
+export function pedidosPendientes(limite = 300): any[] {
+  const pedidos = db
+    .prepare(
+      `SELECT p.id, p.numero, p.cliente_nombre, p.cliente_telefono, p.cliente_direccion, p.fecha_entrega,
+              p.hora_entrega, p.notas, p.total, p.estado, u.nombre AS tomado_por, p.created_at,
+              p.entregado_at, p.entregado_por, p.cancelado_at, p.cancelado_por
+       FROM pedidos p LEFT JOIN usuarios u ON u.id = p.usuario_id
+       WHERE p.synced_at IS NULL ORDER BY p.created_at LIMIT ?`
+    )
+    .all(limite) as any[];
+  const getItems = db.prepare(
+    `SELECT id, nombre_producto AS producto_nombre, tipo_venta_usado, cantidad, unidad,
+            precio_unitario_aplicado AS precio_unitario, subtotal
+     FROM pedido_items WHERE pedido_id = ?`
+  );
+  return pedidos.map((p) => ({ ...p, items: getItems.all(p.id) }));
+}
+
+export function marcarSincronizados(tabla: 'ventas' | 'turnos' | 'pedidos', ids: string[]): void {
   if (!ids.length) return;
   const now = nowUTC();
   const upd = db.prepare(`UPDATE ${tabla} SET synced_at = ? WHERE id = ?`);
@@ -783,7 +1097,7 @@ export function exportarCSV(rango: RangoFechas): string {
   }>;
 
   const cols = [
-    'ticket', 'fecha', 'hora', 'estado', 'turno', 'empleada', 'metodo_pago',
+    'ticket', 'fecha', 'hora', 'estado', 'turno', 'atendio', 'metodo_pago',
     'producto', 'tipo', 'cantidad', 'unidad', 'precio_unitario', 'subtotal',
     'total_ticket', 'monto_recibido', 'vuelto',
   ];
@@ -817,7 +1131,7 @@ export function exportarCSV(rango: RangoFechas): string {
 export function exportarTurnosCSV(rango: RangoFechas): string {
   const turnos = listarTurnos(rango);
   const cols = [
-    'turno', 'empleada', 'apertura', 'cierre', 'estado', 'fondo_apertura', 'fondo_cierre',
+    'turno', 'atendio', 'apertura', 'cierre', 'estado', 'fondo_apertura', 'fondo_cierre',
     'cantidad_tickets', 'total_ventas', 'ventas_efectivo', 'esperado_a_retirar',
     'efectivo_retirado', 'diferencia',
   ];

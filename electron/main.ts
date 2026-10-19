@@ -5,9 +5,10 @@ import { fileURLToPath } from 'node:url';
 import * as db from './db';
 import * as balanza from './balanza';
 import * as auth from './auth';
-import { imprimirTicket, imprimirCierreZ, imprimirPrueba } from './impresora';
+import { imprimirTicket, imprimirCierreZ, imprimirPrueba, imprimirPedido } from './impresora';
 import { configurarAutoUpdate } from './updater';
 import * as sync from './sync';
+import * as reparto from './reparto';
 import {
   getAppConfig,
   getNegocio,
@@ -20,6 +21,14 @@ import type {
   NuevoProducto,
   NuevaCategoria,
   NuevaVenta,
+  NuevoPedido,
+  Sesion,
+  PagoPedidoInput,
+  FiltroPedidos,
+  CopiaTicketPedido,
+  NuevaLiquidacion,
+  MetodoCobroReparto,
+  RangoDias,
   RangoFechas,
   VentaConItems,
   ConfigNegocio,
@@ -103,6 +112,16 @@ function createWindow() {
 // Registro de handlers IPC
 // ---------------------------------------------------------------------------
 
+/** Turno sobre el que se puede cobrar: tiene que estar abierto y ser de hoy. */
+function turnoParaCobrar(s: Sesion): string {
+  if (!s.turno_id) throw new Error('Abrí un turno antes de cobrar');
+  const turno = db.obtenerTurno(s.turno_id);
+  if (turno && db.turnoEsDeOtroDia(turno)) {
+    throw new Error('El turno abierto es de otro día: cerrá la caja y abrí un turno nuevo');
+  }
+  return s.turno_id;
+}
+
 function ok<T>(data?: T) {
   return { ok: true as const, data };
 }
@@ -159,8 +178,7 @@ function registrarIPC() {
   ipcMain.handle('venta:crear', (_e, v: NuevaVenta) => {
     try {
       const s = auth.requireSesion();
-      if (!s.turno_id) throw new Error('Abrí un turno antes de cobrar');
-      const venta = db.crearVenta(v, s.turno_id, s.usuario_id);
+      const venta = db.crearVenta(v, turnoParaCobrar(s), s.usuario_id);
       sync.sincronizarPronto();
       return ok(venta);
     } catch (e) {
@@ -502,6 +520,146 @@ function registrarIPC() {
     }
   });
 
+  // ---- Pedidos ----
+  // Los ven y los cargan empleadas y admin. Cancelar es sólo del admin.
+  ipcMain.handle('pedidos:listar', (_e, f: FiltroPedidos) => {
+    try {
+      auth.requireSesion();
+      return ok(db.listarPedidos(f));
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('pedidos:crear', (_e, p: NuevoPedido) => {
+    try {
+      const s = auth.requireSesion();
+      const conPago = !!p.pago && p.pago.monto > 0;
+      const pedido = db.crearPedido(p, s.usuario_id, conPago ? turnoParaCobrar(s) : null);
+      if (conPago) sync.sincronizarPronto();
+      return ok(pedido);
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('pedidos:entregar', (_e, id: string, pago: PagoPedidoInput | null) => {
+    try {
+      const s = auth.requireSesion();
+      const pendiente = db.obtenerPedido(id);
+      const turnoId = pendiente && pendiente.saldo > 0 ? turnoParaCobrar(s) : null;
+      const pedido = db.entregarPedido(id, pago, turnoId, s.usuario_id, s.nombre);
+      sync.sincronizarPronto();
+      return ok(pedido);
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('pedidos:cancelar', (_e, id: string) => {
+    try {
+      auth.requireAdmin();
+      db.cancelarPedido(id, auth.getSesion()!.nombre);
+      return ok();
+    } catch (e) {
+      return fail(e);
+    }
+  });
+  ipcMain.handle('pedidos:imprimir', async (_e, id: string, copias: CopiaTicketPedido[]) => {
+    try {
+      auth.requireSesion();
+      const pedido = db.obtenerPedido(id);
+      if (!pedido) return fail('Pedido no encontrado');
+      for (const copia of copias) {
+        const r = await imprimirPedido(pedido, copia);
+        if (!r.ok) return fail(r.error);
+      }
+      return ok();
+    } catch (e) {
+      return fail(e);
+    }
+  });
+
+  // ---- Reparto (por fuera de la caja del local) ----
+  // El personal elige repartidor, carga clientes nuevos y la liquidación del día.
+  // Historial, cuentas corrientes, métricas y la gestión de repartidores: Administración.
+  const conSesion = <T>(fn: () => T) => {
+    try {
+      auth.requireSesion();
+      return ok(fn());
+    } catch (e) {
+      return fail(e);
+    }
+  };
+  const soloAdmin = <T>(fn: () => T) => {
+    try {
+      auth.requireAdmin();
+      return ok(fn());
+    } catch (e) {
+      return fail(e);
+    }
+  };
+  ipcMain.handle('reparto:repartidores', (_e, incluirInactivos?: boolean) =>
+    conSesion(() => reparto.listarRepartidores(!!incluirInactivos && auth.getSesion()?.rol === 'admin'))
+  );
+  ipcMain.handle('reparto:crearRepartidor', (_e, nombre: string, telefono: string | null) =>
+    soloAdmin(() => {
+      const r = reparto.crearRepartidor(nombre, telefono);
+      sync.sincronizarPronto();
+      return r;
+    })
+  );
+  ipcMain.handle('reparto:editarRepartidor', (_e, id: string, cambios) =>
+    soloAdmin(() => {
+      reparto.editarRepartidor(id, cambios);
+      sync.sincronizarPronto();
+    })
+  );
+  ipcMain.handle('reparto:clientes', (_e, repartidorId: string, incluirInactivos?: boolean) =>
+    conSesion(() => {
+      const admin = auth.getSesion()?.rol === 'admin';
+      return reparto.listarClientes(repartidorId, admin, !!incluirInactivos && admin);
+    })
+  );
+  ipcMain.handle('reparto:crearCliente', (_e, c) =>
+    conSesion(() => {
+      const nuevo = reparto.crearCliente(c);
+      sync.sincronizarPronto();
+      return nuevo;
+    })
+  );
+  // El personal puede corregir los datos de un cliente; darlo de baja es de Administración.
+  ipcMain.handle('reparto:editarCliente', (_e, id: string, cambios) =>
+    conSesion(() => {
+      const { activo, ...datos } = cambios ?? {};
+      reparto.editarCliente(id, auth.getSesion()?.rol === 'admin' ? cambios : datos);
+      sync.sincronizarPronto();
+    })
+  );
+  ipcMain.handle('reparto:crearLiquidacion', (_e, n: NuevaLiquidacion) =>
+    conSesion(() => {
+      const l = reparto.crearLiquidacion(n, auth.getSesion()!.usuario_id);
+      sync.sincronizarPronto();
+      return l;
+    })
+  );
+  ipcMain.handle('reparto:liquidaciones', (_e, rango: RangoDias, repartidorId?: string | null) =>
+    soloAdmin(() => reparto.listarLiquidaciones(rango, repartidorId))
+  );
+  ipcMain.handle('reparto:liquidacion', (_e, id: string) => soloAdmin(() => reparto.obtenerLiquidacion(id)));
+  ipcMain.handle('reparto:anularLiquidacion', (_e, id: string) =>
+    soloAdmin(() => {
+      reparto.anularLiquidacion(id, auth.getSesion()!.nombre);
+      sync.sincronizarPronto();
+    })
+  );
+  ipcMain.handle('reparto:cuentas', (_e, repartidorId?: string | null) => soloAdmin(() => reparto.cuentasClientes(repartidorId)));
+  ipcMain.handle('reparto:movimientos', (_e, clienteId: string) => soloAdmin(() => reparto.movimientosCliente(clienteId)));
+  ipcMain.handle('reparto:registrarCobro', (_e, clienteId: string, monto: number, metodo: MetodoCobroReparto, fecha: string) =>
+    soloAdmin(() => {
+      reparto.registrarCobroSuelto(clienteId, monto, metodo, fecha, auth.getSesion()!.usuario_id);
+      sync.sincronizarPronto();
+    })
+  );
+  ipcMain.handle('reparto:metricas', (_e, rango: RangoDias) => soloAdmin(() => reparto.metricasReparto(rango)));
+
   // ---- Turnos ----
   ipcMain.handle('turno:actual', () => {
     const s = auth.getSesion();
@@ -516,6 +674,7 @@ function registrarIPC() {
       apertura_at: t.apertura_at,
       fondo_inicial: t.fondo_inicial,
       cantidad_tickets: res.cantidad_tickets,
+      de_otro_dia: db.turnoEsDeOtroDia(t),
     };
   });
   ipcMain.handle('turno:abrir', (_e, fondoInicial: number) => {

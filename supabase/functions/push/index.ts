@@ -40,7 +40,25 @@ Deno.serve(async (req: Request) => {
 
   const turnos = Array.isArray(body?.turnos) ? body.turnos : [];
   const ventas = Array.isArray(body?.ventas) ? body.ventas : [];
+  // Cajas viejas no mandan `pedidos`: queda vacío y todo sigue igual.
+  const pedidos = Array.isArray(body?.pedidos) ? body.pedidos : [];
   const ahora = new Date().toISOString();
+
+  // Pedidos primero: sus ítems tienen FK al pedido.
+  const pedidoItems: any[] = [];
+  const pedidoRows = pedidos.map((p: any) => {
+    const { items: pItems, ...rest } = p;
+    if (Array.isArray(pItems)) for (const it of pItems) pedidoItems.push({ ...it, pedido_id: p.id });
+    return { ...rest, caja_id, actualizado_at: ahora };
+  });
+  if (pedidoRows.length) {
+    const { error } = await supabase.from("pedidos").upsert(pedidoRows);
+    if (error) return json({ error: "pedidos: " + error.message }, 500);
+  }
+  if (pedidoItems.length) {
+    const { error } = await supabase.from("pedido_items").upsert(pedidoItems);
+    if (error) return json({ error: "pedido_items: " + error.message }, 500);
+  }
 
   if (turnos.length) {
     const rows = turnos.map((t: any) => ({ ...t, caja_id, actualizado_at: ahora }));
@@ -63,5 +81,35 @@ Deno.serve(async (req: Request) => {
     if (error) return json({ error: "items: " + error.message }, 500);
   }
 
-  return json({ ok: true, turnos: turnos.length, ventas: ventas.length });
+  // Reparto (por fuera de la caja). Responder `reparto` le confirma a la caja que
+  // esta versión lo guarda: recién ahí lo marca como subido.
+  const rep = body?.reparto ?? {};
+  const arr = (x: unknown) => (Array.isArray(x) ? x : []);
+  const conCaja = (rows: any[]) => rows.map((r) => ({ ...r, caja_id, actualizado_at: ahora }));
+  const repItems: any[] = [];
+  const liqRows = arr(rep.liquidaciones).map((l: any) => {
+    const { items: lItems, ...rest } = l;
+    for (const it of arr(lItems)) repItems.push({ ...it, liquidacion_id: l.id });
+    return { ...rest, caja_id, actualizado_at: ahora };
+  });
+  const pasos: [string, any[]][] = [
+    ["repartidores", conCaja(arr(rep.repartidores))],
+    ["reparto_clientes", conCaja(arr(rep.clientes))],
+    ["reparto_liquidaciones", liqRows],
+    ["reparto_items", repItems],
+    ["reparto_cobros", conCaja(arr(rep.cobros))],
+  ];
+  for (const [tabla, rows] of pasos) {
+    if (!rows.length) continue;
+    const { error } = await supabase.from(tabla).upsert(rows);
+    if (error) return json({ error: `${tabla}: ${error.message}` }, 500);
+  }
+
+  return json({
+    ok: true,
+    turnos: turnos.length,
+    ventas: ventas.length,
+    pedidos: pedidos.length,
+    reparto: { liquidaciones: liqRows.length, cobros: arr(rep.cobros).length },
+  });
 });

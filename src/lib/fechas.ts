@@ -46,3 +46,49 @@ export function rangoPersonalizado(desde: string, hasta: string): RangoFechas {
 
 export const fechaHoraLocal = (iso: string) => new Date(iso).toLocaleString('es-AR');
 export const fechaLocal = (iso: string) => new Date(iso).toLocaleDateString('es-AR');
+
+/** Fecha local como yyyy-mm-dd, corrida `dias` días desde hoy. */
+export function fechaISOLocal(dias = 0): string {
+  const d = new Date();
+  d.setDate(d.getDate() + dias);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/** Días desde hoy hasta una fecha yyyy-mm-dd (0 = hoy, negativo = ya pasó). */
+export function diasHasta(fecha: string): number {
+  const objetivo = new Date(`${fecha}T00:00:00`).getTime();
+  const hoy = new Date(`${fechaISOLocal()}T00:00:00`).getTime();
+  return Math.round((objetivo - hoy) / 86_400_000);
+}
+
+/** "Hoy", "Mañana" o "sáb 25/10", con la hora si hay. */
+export function fechaEntregaTexto(fecha: string, hora: string | null): string {
+  const n = diasHasta(fecha);
+  const dia =
+    n === 0
+      ? 'Hoy'
+      : n === 1
+        ? 'Mañana'
+        : new Date(`${fecha}T00:00:00`).toLocaleDateString('es-AR', {
+            weekday: 'short',
+            day: '2-digit',
+            month: '2-digit',
+          });
+  return hora ? `${dia} ${hora} hs` : dia;
+}
+
+/** Rango de días locales (yyyy-mm-dd) para un preset; mismo criterio que rangoDePreset. */
+export function rangoDiasDePreset(preset: Exclude<PeriodoPreset, 'personalizado'>): { desde: string; hasta: string } {
+  const r = rangoDePreset(preset);
+  const local = (iso: string) => {
+    const d = new Date(iso);
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  };
+  return { desde: local(r.desde), hasta: local(r.hasta) };
+}
+
+/** "lun 20/10" para una fecha yyyy-mm-dd. */
+export const diaCorto = (fecha: string) =>
+  new Date(`${fecha}T00:00:00`).toLocaleDateString('es-AR', { weekday: 'short', day: '2-digit', month: '2-digit' });
